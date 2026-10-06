@@ -1,0 +1,337 @@
+# geomob configuration file (TOML).
+# Use with:  python -m geomob.cli <command> --config this_file.toml
+# Precedence: built-in defaults < [common] < [<command>] < command-line flags.
+# Unknown sections / keys are an error, so typos are caught.
+# Command options are listed commented-out at their defaults: uncomment
+# and edit only what you change (the run record saves ALL of them anyway).
+# A line '# key =' means the default is 'unset'.
+
+[paths]
+# dataset locations; these beat exported DATA_<NAME> variables
+# porto = "/path/to/porto"
+# tdrive = "/path/to/tdrive"
+# geolife = "/path/to/geolife"
+# roma = "/path/to/roma"
+# ais = "/path/to/ais"
+# csv = "/path/to/csv"
+
+[common]
+# applied to every command that has the option
+# device = "cuda"
+# seeds = [0, 1, 2]
+
+[model]
+# width of every sequence model (LSTM / Transformer / GNN)
+hidden = 128
+# LSTM and Transformer depth
+layers = 2
+# attention heads (Transformer, GAT)
+heads = 4
+# dropout inside the sequence model
+dropout = 0.0
+
+[encoders]
+# embedding size: GPE h, and GEO's total dimension (half location, half displacement)
+h = 128
+# GPE Algorithm 1 epsilon-cut
+gpe_eps_over_2pi = 1e-06
+# how many of the h numbers go to LOCATION (multiple of 4); the rest goes to displacement: angular first (2 per harmonic), what remains to the radial part. 0 = half. Total stays exactly h. With h=128 and 2 harmonics: 64 = default, 96 = 96 loc + 28 radial + 4 angular, 124 = no radial part (angular only), 128 with geo_harmonics=[] = location only. When set, the two *_scales keys must stay 0
+geo_loc_dims = 0
+# number of torus-lattice scales; 0 = h // 8
+geo_loc_scales = 0
+# finest location wavelength (m)
+geo_loc_lam_min_m = 25.0
+# coarsest location wavelength (m)
+geo_loc_lam_max_m = 200000.0
+# radial displacement scales; 0 = (h/2 - 4) / 2
+geo_disp_scales = 0
+# finest displacement wavelength (m)
+geo_disp_lam_min_m = 5.0
+# coarsest displacement wavelength (m)
+geo_disp_lam_max_m = 20000.0
+# angular harmonics of the displacement channel (m=4: street-grid order)
+geo_harmonics = [1, 4]
+# cyclic C24 harmonics
+time_hour_harmonics = 4
+# cyclic C7 harmonics
+time_dow_harmonics = 3
+# SpeedGEO scales (dt and speed)
+speed_scales = 6
+# SpeedGEO shortest wavelength (log1p units)
+speed_lo = 0.05
+# SpeedGEO longest wavelength (log1p units)
+speed_hi = 60.0
+
+[search_space]
+# used by `python -m geomob.cli search`: for any [encoders] or [model]
+# key, the list of values to try. Every combination is a trial (grid),
+# or a random subset of them (method = "random" in [search]).
+# geo_loc_lam_min_m = [10.0, 25.0, 50.0]
+# geo_loc_lam_max_m = [50000.0, 200000.0]
+# geo_disp_lam_min_m = [2.0, 5.0, 10.0]
+# geo_disp_lam_max_m = [5000.0, 20000.0]
+# geo_harmonics = [[1], [1, 4], [1, 2, 4]]
+# geo_loc_dims = [64, 80, 96, 112, 124]   # location share of h; 124 = no radial part
+
+[run_all]
+# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+# steps = ["gpe_suite", "downstream", "anomaly_synth", "figures"]
+# out_dir = "results"
+# fig_dir = "figures"
+# tiny sizes / 1 epoch: checks the pipeline end to end
+# quick = false
+# seeds = [0]
+# device = "cpu"
+
+[inspect]
+# path =
+# group_col =
+# min_len = 20
+# gap_min = 10.0
+# out =
+
+[architectures]
+# dataset = "synthetic_hard"
+# path =
+# which = ["gpe", "geo_spatial", "grid", "xy"]
+# kinds = ["lstm", "transformer", "gnn"]
+# n_train = 2000
+# n_test = 600
+# epochs = 3
+# transfer_lat =
+# split = "user"
+# group_col =
+# gap_min = 10.0
+# device = "cpu"
+# seed = 0
+# out =
+
+[roadnetwork]
+# dataset = "synthetic_hard"
+# path =
+# OSM .graphml or place name (needs osmnx); otherwise the network is induced from the trips
+# graph_path =
+# cell_m = 200.0
+# dim = 128
+# n_train = 1500
+# n_test = 200
+# epochs = 4
+# k = 10
+# measures = ["TP", "DITA", "LCRS", "NetERP"]
+# split = "user"
+# group_col =
+# gap_min = 10.0
+# device = "cpu"
+# seed = 0
+# out =
+
+[downstream]
+# dataset = "geolife"
+# path =
+# tasks = ["tul", "eta", "mode", "anomaly"]
+# encoders = ["gpe", "gpe_ts", "geo", "geo_ts"]
+# backbones = ["lstm", "transformer"]
+# seeds = [0]
+# epochs = 10
+# bs = 64
+# lr = 0.001
+# max_traj = 20000
+# TUL: users with fewer trajectories are dropped
+# min_trips = 10
+# eta_step_m = 30.0
+# mode_split = "user"
+# anomaly_rate = 0.28
+# severity = 1.0
+# ETA: trips longer than this (minutes) are dropped
+# eta_max_min = 180.0
+# anomaly: autoencoder bottleneck size
+# z_dim = 16
+# anomaly: neighbours for the latent kNN score
+# k = 10
+# device = "cpu"
+# out =
+
+[gpe_suite]
+# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+# parts = ["local_global", "dims", "arch", "road"]
+# encoders = ["gpe", "geo"]
+# kinds = ["lstm", "transformer", "gnn"]
+# n_train =
+# n_test = 5000
+# split = "gpe"
+# max_traj = 20000
+# epochs = 5
+# bs = 128
+# lr = 0.001
+# dims = [32, 64, 128, 256]
+# road_dataset =
+# road_n_train = 300
+# road_n_test = 150
+# road_epochs = 6
+# road_lambda = 0.5
+# cell_m = 200.0
+# graph_path =
+# seeds = [0]
+# device = "cpu"
+# out =
+
+[anomaly]
+# dataset = "synthetic_hard"
+# path =
+# which = ["geo_c4", "geo_speed", "geo_full", "geo_spatial", "disp_only", "radial_only", "time_only", "gpe", "grid"]
+# rate = 0.28
+# severities = [1.0, 0.5, 0.25]
+# k = 10
+# n_train = 2000
+# n_test = 1000
+# split = "user"
+# group_col =
+# gap_min = 10.0
+# seed = 0
+# out =
+
+[lambda]
+# dataset = "synthetic_hard"
+# path =
+# measure = "TP"
+# lambdas = [1.0, 0.75, 0.5, 0.25, 0.0]
+# time_kinds = ["none", "raw", "time2vec", "cyclic"]
+# temporal_mode = "cyclic"
+# shift_test_h = 168.0
+# n_train = 400
+# n_test = 200
+# cell_m = 200.0
+# epochs = 8
+# k = 10
+# split = "user"
+# group_col =
+# gap_min = 10.0
+# device = "cpu"
+# seed = 0
+# out =
+
+[tul]
+# dataset = "csv"
+# path =
+# which = ["gpe", "geo_spatial", "geo_full", "grid"]
+# split = "day"
+# epochs = 15
+# group_col =
+# gap_min = 10.0
+# device = "cpu"
+# seed = 0
+# out =
+
+[audit]
+# synthetic, synthetic_hard, csv, porto, tdrive, geolife, roma, ais
+# dataset = "synthetic"
+# file or directory for the dataset; required for --dataset csv
+# path =
+# seed = 0
+# out =
+
+[tokens]
+# synthetic, synthetic_hard, csv, porto, tdrive, geolife, roma, ais
+# dataset = "synthetic"
+# file or directory for the dataset; required for --dataset csv
+# path =
+# seed = 0
+# out =
+
+[probe]
+# synthetic, synthetic_hard, csv, porto, tdrive, geolife, roma, ais
+# dataset = "synthetic"
+# file or directory for the dataset; required for --dataset csv
+# path =
+# seed = 0
+# out =
+
+[exp_a]
+# dataset = "synthetic"
+# path =
+# task = "destination"
+# which = ["gpe", "geo_spatial", "grid", "xy", "fourier", "space2vec"]
+# fraction of each trip that is observed
+# prefix = 0.7
+# n_test = 600
+# kind = "lstm"
+# split = "user"
+# group_col =
+# gap_min = 10.0
+# device = "cpu"
+# epochs = 10
+# seed = 0
+# out =
+# sizes = [200, 500, 1000, 2000]
+
+[benchmark]
+# synthetic, synthetic_hard, csv, porto, tdrive, geolife, roma, ais
+# dataset = "synthetic"
+# file or directory for the dataset; required for --dataset csv
+# path =
+# seed = 0
+# out =
+# which = ["gpe", "geo_spatial", "xy", "grid"]
+# kind = "lstm"
+# epochs = 5
+# n_train = 4000
+# n_test = 1000
+# device = "cpu"
+# group_col =
+# gap_min = 10.0
+# how to hold out test data on a CSV corpus; 'user' (default) prevents a person's repeated commutes leaking across the split
+# split = "user"
+
+[transfer]
+# src = "synthetic"
+# dst = "synthetic"
+# src_path =
+# dst_path =
+# dst_lat =
+# dst_scale =
+# which = ["gpe", "geo_spatial", "xy", "grid"]
+# epochs = 5
+# ft_epochs = 2
+# n_train = 4000
+# n_test = 1000
+# n_finetune = 500
+# device = "cpu"
+# seed = 0
+# out =
+# group_col =
+# gap_min = 10.0
+# how to hold out test data on a CSV corpus; 'user' (default) prevents a person's repeated commutes leaking across the split
+# split = "user"
+
+[search]
+# what a trial is scored on: trajectory similarity (any dataset) or a GeoLife downstream task
+# objective = "similarity"
+# similarity: KP@10 (default), MRR, MP, MR, global_MRR; tul: acc@1 (default), acc@5, macro_F1; eta: MAE (default), RMSE, MAPE; mode: macro_F1 (default), acc@1
+# metric =
+# grid = every combination; random = n_trials of them
+# method = "grid"
+# number of combinations when method = random
+# n_trials = 20
+# similarity objective: corpora to average over (missing ones are skipped)
+# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+# default: geo for similarity, geo_ts (with time and speed) for the downstream objectives
+# encoder =
+# kind = "lstm"
+# training epochs per trial (keep small: this is multiplied by the number of trials)
+# epochs = 3
+# bs = 128
+# lr = 0.001
+# similarity: training trajectories per dataset per trial
+# n_train = 4000
+# similarity: validation trajectories trials are scored on
+# n_val = 1000
+# similarity: size of the gpe_suite test set to hold out untouched (use the same value as [gpe_suite] n_test)
+# n_test = 5000
+# max_traj = 20000
+# seeds = [0]
+# which random subset is drawn when method = random
+# search_seed = 0
+# device = "cpu"
+# out_dir = "results/search"
+# ignore trials already recorded in out_dir/trials.jsonl
+# no_resume = false

@@ -1,0 +1,15 @@
+# Core: needed by every experiment and by the figures.
+numpy>=1.24
+pandas>=2.0        # CSV loading and the corpus inspector (geomob.csvdata)
+scipy>=1.10        # road-network shortest paths (geomob.graph)
+matplotlib>=3.6    # figures (geomob.figures)
+
+# Only for the trained-model experiments: exp_a, benchmark, transfer,
+# lambda, architectures, roadnetwork, tul. The audit / tokens / probe /
+# anomaly / inspect / figures commands run without it.
+torch>=2.0
+
+# Optional: a real OSM road graph for `roadnetwork --graph-path`.
+# Without it the network is induced from the trajectories themselves.
+# osmnx>=1.9
+# networkx>=3.0
