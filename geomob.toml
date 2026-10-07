@@ -75,7 +75,7 @@ speed_hi = 60.0
 
 [run_all]
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
-# steps = ["gpe_suite", "downstream", "anomaly_synth", "figures"]
+# steps = ["gpe_suite", "downstream", "relocate", "anomaly_synth", "figures"]
 # out_dir = "results"
 # fig_dir = "figures"
 # tiny sizes / 1 epoch: checks the pipeline end to end
@@ -335,3 +335,26 @@ speed_hi = 60.0
 # out_dir = "results/search"
 # ignore trials already recorded in out_dir/trials.jsonl
 # no_resume = false
+
+[relocate]
+# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+# similarity is the control; eta and mode are the supervised tasks whose answer does not depend on where the city is (mode needs GeoLife labels)
+# tasks = ["similarity", "eta", "mode"]
+# spatial = GPE vs GEO as in gpe_suite; ts = both with time and speed added (eta and mode only)
+# channels = "spatial"
+# kinds = ["lstm"]
+# latitudes (degrees north) the test city is moved to
+# latitudes = [0.0, 20.0, 40.0, 60.0, 70.0]
+# rotations (degrees) of the test city about its centre
+# angles = [0.0, 15.0, 30.0, 45.0, 60.0, 90.0]
+# eastward shifts (km) of the test city
+# shifts_km = [0.0, 1.0, 10.0, 100.0, 1000.0]
+# n_train =
+# n_test = 2000
+# max_traj = 20000
+# epochs = 5
+# bs = 128
+# lr = 0.001
+# seeds = [0]
+# device = "cpu"
+# out =

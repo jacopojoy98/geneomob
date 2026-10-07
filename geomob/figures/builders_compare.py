@@ -150,47 +150,76 @@ def fig_similarity_by_dataset(suites):
 
 def overview_rows(down, suites):
     """Long-format rows: one headline number per (family, dataset, task,
-    backbone, metric, method)."""
+    backbone, metric, method, seed). When a results file kept its per-seed
+    values there is one row per seed; older files give a single row with
+    seed = None holding the mean."""
     rows = []
+
+    def add(**kw):
+        rows.append(kw)
+
     for name, d in down.items():
         for task, t in d["tasks"].items():
             for rlabel, get, mlabel, higher in _task_rows(task):
                 for key, bb in t["results"].items():
                     for kind, v in bb.items():
-                        val = get(v)
-                        if val is None:
-                            continue
-                        rows.append({
-                            "family": "downstream", "dataset": name, "task": task,
-                            "backbone": kind,
-                            "metric": mlabel + (f" ({rlabel})" if rlabel else ""),
-                            "higher_is_better": higher, "method_key": key,
-                            "method": d["encoders"].get(key, key),
-                            "value": float(val)})
+                        reps = [(r.get("seed"), r) for r in v.get("_seeds", [])] or [(None, v)]
+                        for seed, cell in reps:
+                            try:
+                                val = get(cell)
+                            except (KeyError, TypeError):
+                                val = None
+                            if val is None:
+                                continue
+                            add(family="downstream", dataset=name, task=task,
+                                backbone=kind,
+                                metric=mlabel + (f" ({rlabel})" if rlabel else ""),
+                                higher_is_better=higher, method_key=key,
+                                method=d["encoders"].get(key, key), seed=seed,
+                                value=float(val))
     for res in suites:
         lg = res["parts"].get("local_global") or {}
         for kind, encs in lg.items():
             for e, row in encs.items():
                 for src, pd_ in row["per_dataset"].items():
-                    for m, higher in SIM_METRICS:
-                        rows.append({
-                            "family": "similarity", "dataset": src, "task": "similarity",
-                            "backbone": kind, "metric": m, "higher_is_better": higher,
-                            "method_key": e, "method": row["name"],
-                            "value": float(pd_["local"][m])})
-                    for dst, g in pd_["global"].items():
-                        rows.append({
-                            "family": "similarity", "dataset": f"{src}->{dst}",
-                            "task": "zero-shot similarity", "backbone": kind,
-                            "metric": "MRR", "higher_is_better": True,
-                            "method_key": e, "method": row["name"],
-                            "value": float(list(g.values())[-1])})
+                    reps = [(r.get("seed"), r) for r in pd_.get("seeds", [])] or [(None, pd_)]
+                    for seed, cell in reps:
+                        for m, higher in SIM_METRICS:
+                            add(family="similarity", dataset=src, task="similarity",
+                                backbone=kind, metric=m, higher_is_better=higher,
+                                method_key=e, method=row["name"], seed=seed,
+                                value=float(cell["local"][m]))
+                        for dst, g in cell["global"].items():
+                            add(family="similarity", dataset=f"{src}->{dst}",
+                                task="zero-shot similarity", backbone=kind,
+                                metric="MRR", higher_is_better=True,
+                                method_key=e, method=row["name"], seed=seed,
+                                value=float(list(g.values())[-1]))
     return rows
+
+
+def _setting(r):
+    return (r["family"], r["dataset"], r["task"], r["backbone"], r["metric"])
+
+
+def mean_rows(rows):
+    """Collapse seeds: one row per setting and method, value = mean."""
+    acc = {}
+    for r in rows:
+        acc.setdefault(_setting(r) + (r["method_key"],), []).append(r)
+    out = []
+    for rs in acc.values():
+        m = dict(rs[0])
+        m["value"] = float(np.mean([x["value"] for x in rs]))
+        m["n_seeds"] = len(rs)
+        m["seed"] = None
+        out.append(m)
+    return out
 
 
 def write_overview_csv(rows, path):
     cols = ["family", "dataset", "task", "backbone", "metric",
-            "higher_is_better", "method", "value"]
+            "higher_is_better", "method", "seed", "value"]
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(cols)
@@ -202,7 +231,7 @@ def tex_by_dataset(rows):
     """One LaTeX table per task: methods x backbone down, datasets across."""
     out = []
     groups = {}
-    for r in rows:
+    for r in mean_rows(rows):
         if r["family"] != "downstream":
             continue
         groups.setdefault((r["task"], r["metric"], r["higher_is_better"]), []).append(r)
@@ -247,6 +276,8 @@ def make_blocks(rows, family, task=None, methods=None):
         if methods and r["method_key"] not in methods:
             continue
         b = f"{r['dataset']} | {r['task']} | {r['backbone']} | {r['metric']}"
+        if r.get("seed") is not None:
+            b += f" | seed {r['seed']}"
         blocks.setdefault(b, {})[r["method"]] = (
             r["value"] if r["higher_is_better"] else -r["value"])
     if not blocks:
@@ -395,7 +426,10 @@ def fig_cd(stats, title, name):
     if np.isfinite(p) and p >= 0.05:
         verdict = "; overall difference not significant"
     few = "  [few blocks: low power]" if N < 2 * k + 2 else ""
-    ax.set_title(f"{title}\n{N} blocks, {stats['test']} p {ptxt}{verdict}{few}",
+    ns, sp = stats.get("n_settings", N), stats.get("seeds_per_setting", 1)
+    what = (f"{N} blocks ({ns} settings x {sp:g} seeds)" if sp and sp > 1
+            else f"{N} blocks")
+    ax.set_title(f"{title}\n{what}, {stats['test']} p {ptxt}{verdict}{few}",
                  fontsize=7.5)
     fig.tight_layout()
     return (name, fig)
@@ -422,6 +456,8 @@ def build_cd(rows, min_blocks=3):
             notes.append(f"{name}: {len(meths)} methods, CD table covers 2-10; skipped")
             continue
         st = cd_stats(blocks, meths)
+        st["n_settings"] = len({b.split(" | seed ")[0] for b in blocks})
+        st["seeds_per_setting"] = round(len(blocks) / max(st["n_settings"], 1), 2)
         allstats[name] = st
         figs.append(fig_cd(st, title, name))
     return figs, allstats, notes
@@ -455,6 +491,243 @@ def tex_cd(allstats):
 
 
 # ==========================================================================
+# 3. GEO against GPE, paired over seeds
+# ==========================================================================
+PAIRS = (("geo", "gpe", ""), ("geo_ts", "gpe_ts", " +time+speed"))
+
+
+def paired_tests(rows):
+    """For every setting and each matched pair (GEO vs GPE with the same extra
+    channels): the per-seed differences, their mean as a relative improvement,
+    a 95% interval and a paired t-test over seeds (Holm-corrected across all
+    settings). Seeds share splits and initialisation order, so they pair."""
+    from scipy import stats as st
+    cell = {}
+    for r in rows:
+        cell.setdefault(_setting(r), {}).setdefault(r["method_key"], {})[r["seed"]] = r
+    out = []
+    for setting, meths in cell.items():
+        for a, b, tag in PAIRS:
+            if a not in meths or b not in meths:
+                continue
+            seeds = sorted(set(meths[a]) & set(meths[b]), key=lambda x: (x is None, x))
+            if not seeds:
+                continue
+            ra = meths[a][seeds[0]]
+            sign = 1.0 if ra["higher_is_better"] else -1.0
+            va = np.array([meths[a][sd]["value"] for sd in seeds])
+            vb = np.array([meths[b][sd]["value"] for sd in seeds])
+            d = sign * (va - vb)
+            scale = 100.0 / max(abs(vb.mean()), 1e-12)
+            n = len(d)
+            rec = {"family": setting[0], "dataset": setting[1], "task": setting[2],
+                   "backbone": setting[3], "metric": setting[4], "pair": "GEO vs GPE" + tag,
+                   "n_seeds": n, "geo_mean": float(va.mean()), "gpe_mean": float(vb.mean()),
+                   "rel_improvement_pct": float(d.mean() * scale),
+                   "geo_better_seeds": int((d > 0).sum()),
+                   "ci95_pct": float("nan"), "p_value": float("nan")}
+            if n >= 3:
+                sd_ = d.std(ddof=1)
+                if sd_ > 0:
+                    rec["ci95_pct"] = float(st.t.ppf(0.975, n - 1) * sd_ / np.sqrt(n) * scale)
+                    rec["p_value"] = float(st.ttest_rel(sign * va, sign * vb).pvalue)
+                else:                       # identical difference in every seed
+                    rec["ci95_pct"] = 0.0
+                    rec["p_value"] = 0.0 if d.mean() != 0 else 1.0
+            out.append(rec)
+    # Holm correction over every test that could be run
+    idx = [i for i, r in enumerate(out) if np.isfinite(r["p_value"])]
+    order = sorted(idx, key=lambda i: out[i]["p_value"])
+    m, running = len(order), 0.0
+    for rank, i in enumerate(order):
+        running = max(running, min(1.0, (m - rank) * out[i]["p_value"]))
+        out[i]["p_holm"] = float(running)
+    for r in out:
+        r.setdefault("p_holm", float("nan"))
+        r["significant"] = bool(np.isfinite(r["p_holm"]) and r["p_holm"] < 0.05)
+    return out
+
+
+def fig_paired(tests, family, name, title):
+    T = [t for t in tests if t["family"] == family]
+    if not T:
+        return None
+    T.sort(key=lambda t: (t["task"], t["pair"], t["dataset"], t["backbone"], t["metric"]))
+    n = len(T)
+    fig, ax = plt.subplots(figsize=(WIDTH_2COL, 0.9 + 0.17 * n))
+    y = np.arange(n)[::-1]
+    x = np.array([t["rel_improvement_pct"] for t in T])
+    ci = np.array([t["ci95_pct"] for t in T])
+    lim = np.nanpercentile(np.abs(np.r_[x, x + np.nan_to_num(ci), x - np.nan_to_num(ci)]), 95)
+    lim = max(float(lim) * 1.25, 1.0)
+    ax.axvline(0, color="black", lw=0.8)
+    for i, t in enumerate(T):
+        col = "#0072B2" if x[i] > 0 else "#D55E00"
+        if np.isfinite(ci[i]):
+            ax.plot([x[i] - ci[i], x[i] + ci[i]], [y[i], y[i]], color=col, lw=1.0,
+                    solid_capstyle="butt")
+        ax.plot(np.clip(x[i], -lim, lim), y[i], marker="o", ms=4.5,
+                markerfacecolor=col if t["significant"] else "white",
+                markeredgecolor=col, markeredgewidth=1.0, zorder=3)
+        if abs(x[i]) > lim:                     # off the axis: say the value
+            ax.annotate(f"{x[i]:+.0f}%", (np.sign(x[i]) * lim, y[i]), fontsize=5,
+                        textcoords="offset points",
+                        xytext=(-4 if x[i] > 0 else 4, 3),
+                        ha="right" if x[i] > 0 else "left")
+    ax.set_yticks(y)
+    ax.set_yticklabels([f"{t['dataset']} | {t['task']}{t['pair'][10:]} | "
+                        f"{t['backbone']} | {t['metric']}" for t in T], fontsize=5)
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-0.7, n - 0.3)
+    ax.set_xlabel("relative improvement of GEO over GPE, %   "
+                  r"(GPE better $\leftarrow$ 0 $\rightarrow$ GEO better)")
+    ax.grid(axis="y", visible=False)
+    wins = int((x > 0).sum())
+    sg = sum(1 for t in T if t["significant"] and t["rel_improvement_pct"] > 0)
+    sl = sum(1 for t in T if t["significant"] and t["rel_improvement_pct"] < 0)
+    ns = sorted({t["n_seeds"] for t in T})
+    seeds_txt = f"{ns[0]}" if len(ns) == 1 else f"{ns[0]}-{ns[-1]}"
+    note = ("" if max(ns) >= 3 else
+            "  [fewer than 3 seeds: no intervals or tests]")
+    fig.suptitle(f"{title}: GEO ahead in {wins} of {n} settings; significantly "
+                 f"better in {sg}, significantly worse in {sl}\n"
+                 f"{seeds_txt} seed(s) per setting; bars = 95% interval over seeds; "
+                 f"filled = significant after Holm correction{note}", fontsize=7)
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.12 / fig.get_figheight()))
+    return (name, fig)
+
+
+def write_paired_csv(tests, path):
+    cols = ["family", "dataset", "task", "backbone", "metric", "pair", "n_seeds",
+            "geo_mean", "gpe_mean", "rel_improvement_pct", "ci95_pct",
+            "geo_better_seeds", "p_value", "p_holm", "significant"]
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(cols)
+        for t in tests:
+            w.writerow([t[c] for c in cols])
+
+
+def tex_paired(tests):
+    if not tests:
+        return ""
+    groups = {}
+    for t in tests:
+        groups.setdefault((t["family"], t["task"], t["pair"]), []).append(t)
+    lines = [r"\begin{table}[t]", r"\centering",
+             r"\caption{GEO against GPE with matched channels, paired over seeds. "
+             r"A setting is one dataset, sequence model and metric. `Sig.' counts "
+             r"settings where the paired $t$-test over seeds is significant at 5\% "
+             r"after Holm correction across all settings.}",
+             r"\begin{tabular}{llrrrrr}", r"\toprule",
+             r"Task & Pair & Settings & GEO ahead & Sig. better & Sig. worse & "
+             r"Median gain (\%) \\", r"\midrule"]
+    for (fam, task, pair), ts in groups.items():
+        x = np.array([t["rel_improvement_pct"] for t in ts])
+        lines.append(
+            f"{_tx(task)} & {_tx(pair)} & {len(ts)} & {int((x > 0).sum())} & "
+            f"{sum(t['significant'] and t['rel_improvement_pct'] > 0 for t in ts)} & "
+            f"{sum(t['significant'] and t['rel_improvement_pct'] < 0 for t in ts)} & "
+            f"{np.median(x):+.1f} \\\\")
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}", ""]
+    return "\n".join(lines)
+
+
+# ==========================================================================
+# 4. relocated-city test
+# ==========================================================================
+RELOC_STYLE = {   # colour = family, line/marker = variant
+    "GPE":                    dict(color="#D55E00", ls="-", marker="o", lw=1.4),
+    "GPE + space shift":      dict(color="#D55E00", ls="--", marker="s", lw=1.1),
+    "GEO (fixed frame)":      dict(color="#0072B2", ls=":", marker="^", lw=1.1),
+    "GEO (origin re-fit)":    dict(color="#0072B2", ls="--", marker="D", lw=1.1),
+    "GEO (canonical frame)":  dict(color="#0072B2", ls="-", marker="o", lw=1.8),
+    "GPE in canonical frame": dict(color="0.45", ls="-.", marker="v", lw=1.0),
+}
+
+
+def _reloc_panels(res):
+    """task -> [(dataset, kind, data)]"""
+    out = {}
+    for name, bk in res["datasets"].items():
+        for kind, bt in bk.items():
+            for tname, d in bt.items():
+                out.setdefault(tname, []).append((name, kind, d))
+    return out
+
+
+def fig_relocate(res):
+    figs = []
+    for tname, panels in _reloc_panels(res).items():
+        sweeps = list(panels[0][2]["sweeps"])
+        fig, axes = plt.subplots(len(panels), len(sweeps), squeeze=False,
+                                 figsize=(WIDTH_2COL, 1.9 * len(panels) + 0.95),
+                                 sharey="row")
+        for r, (name, kind, d) in enumerate(panels):
+            metric, hi = d["metric"], d["higher_is_better"]
+            for c, sweep in enumerate(sweeps):
+                ax, sw = axes[r][c], d["sweeps"][sweep]
+                x = np.arange(len(sw["values"]))
+                for row in res["rows"]:
+                    y = [cell[metric] for cell in sw["rows"][row]]
+                    st = RELOC_STYLE.get(row, dict(color="black", ls="-", marker="o", lw=1))
+                    ax.plot(x, y, ms=3.2, label=row, markeredgecolor="white",
+                            markeredgewidth=0.4, **st)
+                ax.set_xticks(x)
+                ax.set_xticklabels([f"{v:g}" for v in sw["values"]], fontsize=6)
+                if sweep == "latitude":     # where the city really is
+                    ax.set_xlabel(f"latitude of the city centre ({res['units'][sweep]}; "
+                                  f"real: {d['centre_lonlat'][1]:.0f})", fontsize=6)
+                else:
+                    ax.set_xlabel(f"{sweep} ({res['units'][sweep]})", fontsize=6)
+                if c == 0:
+                    arrow = r"$\uparrow$" if hi else r"$\downarrow$"
+                    ax.set_ylabel(f"{name} / {kind}\n{metric}{UNITS.get(metric, '')} {arrow}",
+                                  fontsize=6.5)
+        h_, l_ = axes[0][0].get_legend_handles_labels()
+        title = {"similarity": "trajectory similarity (control)",
+                 "eta": "travel-time estimation",
+                 "mode": "transport-mode detection"}.get(tname, tname)
+        fig.suptitle(f"Relocated-city test, {title}: one training, the test city "
+                     "moved as a rigid body", fontsize=8.5)
+        H = fig.get_figheight()
+        fig.tight_layout()
+        fig.subplots_adjust(top=1 - 0.72 / H)
+        fig.legend(h_, l_, loc="upper center", ncol=3, fontsize=6, frameon=False,
+                   bbox_to_anchor=(0.5, 1 - 0.2 / H))
+        figs.append((f"fig_relocate_{tname}", fig))
+    return figs
+
+
+def tex_relocate(res):
+    out = []
+    for tname, panels in _reloc_panels(res).items():
+        metric, hi = panels[0][2]["metric"], panels[0][2]["higher_is_better"]
+        pick = min if hi else max
+        lines = [r"\begin{table}[t]", r"\centering",
+                 rf"\caption{{Relocated-city test, {_tx(tname)} ({_tx(metric)}, "
+                 rf"{'higher' if hi else 'lower'} is better): value with the test "
+                 r"city in place, and the worst value along each sweep. All rows "
+                 r"are zero-shot.}",
+                 r"\begin{tabular}{llrrrr}", r"\toprule",
+                 r"Dataset & Method & In place & Latitude & Rotation & Translation \\",
+                 r"\midrule"]
+        for name, kind, d in panels:
+            for i, row in enumerate(res["rows"]):
+                cells = [f"{pick(c[metric] for c in d['sweeps'][sw]['rows'][row]):.3f}"
+                         if sw in d["sweeps"] else "--"
+                         for sw in ("latitude", "rotation", "translation")]
+                lines.append((f"{_tx(name)} ({kind})" if i == 0 else "")
+                             + f" & {_tx(row)} & {d['in_place'][row][metric]:.3f} & "
+                             + " & ".join(cells) + r" \\")
+            lines.append(r"\midrule")
+        lines[-1] = r"\bottomrule"
+        lines += [r"\end{tabular}", r"\end{table}", ""]
+        out.append("\n".join(lines))
+    return "\n".join(out)
+
+
+# ==========================================================================
 # entry point used by the figure driver
 # ==========================================================================
 def build(datasets, out_dir):
@@ -474,7 +747,15 @@ def build(datasets, out_dir):
     figs += cdf
     for n in notes:
         print(f"  - CD: {n}")
+    tests = paired_tests(rows)
+    for fam, nm, ttl in (("similarity", "fig_paired_similarity", "Similarity"),
+                         ("downstream", "fig_paired_downstream", "Downstream tasks")):
+        f = fig_paired(tests, fam, nm, ttl)
+        if f:
+            figs.append(f)
     write_overview_csv(rows, out_dir / "results_by_dataset.csv")
+    if tests:
+        write_paired_csv(tests, out_dir / "paired_tests.csv")
     if stats:
         (out_dir / "cd_stats.json").write_text(json.dumps(stats, indent=2))
-    return figs, [tex_by_dataset(rows), tex_cd(stats)]
+    return figs, [tex_by_dataset(rows), tex_cd(stats), tex_paired(tests)]

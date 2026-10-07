@@ -84,6 +84,49 @@ python -m geomob.cli gpe_suite --config results/gpe_suite.config.toml
 Under `run_all`, each step's JSON records the options that step actually ran
 with, and `run_all_status.json` records the `run_all` invocation itself.
 
+## Seeds as replicates, and GEO against GPE head to head
+
+Set several seeds (`[common] seeds = [0, 1, 2, 3, 4]`). Every results file now
+keeps each seed's numbers, and the figure builder uses them in three ways:
+
+* **CD diagrams use one block per seed** (the title says e.g. "150 blocks
+  (30 settings x 5 seeds)"). The critical difference shrinks as
+  1/sqrt(blocks), so 5 seeds shortens the bar by a factor of about 2.2. This
+  shows the ranking is stable against training randomness on *these*
+  datasets; it does not show it would hold on new datasets.
+* **`fig_paired_similarity`, `fig_paired_downstream`**: one row per setting,
+  the relative improvement of GEO over GPE (matched channels) with its 95%
+  interval over seeds; filled points are significant in a paired t-test over
+  seeds after Holm correction. Needs 3 or more seeds for intervals.
+* **`paired_tests.csv`** and a summary table in `tables.tex`.
+
+## Relocated-city test (equivariance under a change of place)
+
+```bash
+python -m geomob.cli relocate --config geomob.toml --out results/relocate.json
+```
+
+Each model is trained once where the city is. The test set is then moved as
+one rigid body: to other latitudes, turned about its centre, or shifted east.
+Nothing on the ground changes, only the coordinates. Tasks: `similarity`
+(control), `eta` and `mode` (supervised; the answer cannot depend on where the
+city is). Rows, all zero-shot: GPE, GPE + the GPE paper's space shift, GEO
+with its frame left at the training city, GEO with the origin re-fit, GEO in a
+canonical frame (centroid + principal axes, re-fit without labels), and GPE
+fed the same canonical coordinates as a diagnostic. Outputs
+`fig_relocate_<task>` and a table. `run_all` includes it as the `relocate`
+step. `--channels ts` adds time and speed to both methods.
+
+How to read it: a flat line means the method does not care where the city is.
+The canonical-frame rows are flat by construction (the experiment verifies
+it). The grey diagnostic row tells you whether an advantage comes from the
+frame or from the encoding: if it is as good as GEO's canonical row, the frame
+is what matters.
+
+`transfer --dst-lat` and `architectures --transfer-lat` previously moved each
+trip separately, stacking them on one point; they now move the city as a whole
+(results from those two options before v0.7.0 should be re-run).
+
 ## Results per dataset, and critical-difference diagrams
 
 `run_all` now runs the downstream tasks on **every available dataset**, not
