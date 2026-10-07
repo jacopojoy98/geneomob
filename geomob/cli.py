@@ -61,8 +61,10 @@ def main(argv=None):
     ra.add_argument("--datasets", nargs="+",
                     default=["tdrive", "porto", "roma", "ais", "geolife"])
     ra.add_argument("--steps", nargs="+",
-                    default=["gpe_suite", "downstream", "anomaly_synth", "figures"],
-                    choices=["gpe_suite", "downstream", "anomaly_synth", "figures"])
+                    default=["gpe_suite", "downstream", "relocate",
+                             "anomaly_synth", "figures"],
+                    choices=["gpe_suite", "downstream", "relocate",
+                             "anomaly_synth", "figures"])
     ra.add_argument("--out-dir", default="results")
     ra.add_argument("--fig-dir", default="figures")
     ra.add_argument("--quick", action="store_true",
@@ -367,6 +369,42 @@ def main(argv=None):
     se.add_argument("--no-resume", action="store_true",
                     help="ignore trials already recorded in out_dir/trials.jsonl")
 
+    rl = sub.add_parser(
+        "relocate", help="relocated-city test: train once, then move the test "
+                         "city to other latitudes, turn it, shift it")
+    rl.add_argument("--datasets", nargs="+",
+                    default=["tdrive", "porto", "roma", "ais", "geolife"])
+    rl.add_argument("--paths", nargs="*", default=[],
+                    help="name=path pairs; otherwise [paths] / DATA_<NAME>")
+    rl.add_argument("--tasks", nargs="+", default=["similarity", "eta", "mode"],
+                    choices=["similarity", "eta", "mode"],
+                    help="similarity is the control; eta and mode are the "
+                         "supervised tasks whose answer does not depend on "
+                         "where the city is (mode needs GeoLife labels)")
+    rl.add_argument("--channels", default="spatial", choices=["spatial", "ts"],
+                    help="spatial = GPE vs GEO as in gpe_suite; ts = both with "
+                         "time and speed added (eta and mode only)")
+    rl.add_argument("--kinds", nargs="+", default=["lstm"],
+                    choices=["lstm", "transformer", "gnn"])
+    rl.add_argument("--latitudes", type=float, nargs="*",
+                    default=[0.0, 20.0, 40.0, 60.0, 70.0],
+                    help="latitudes (degrees north) the test city is moved to")
+    rl.add_argument("--angles", type=float, nargs="*",
+                    default=[0.0, 15.0, 30.0, 45.0, 60.0, 90.0],
+                    help="rotations (degrees) of the test city about its centre")
+    rl.add_argument("--shifts-km", type=float, nargs="*",
+                    default=[0.0, 1.0, 10.0, 100.0, 1000.0],
+                    help="eastward shifts (km) of the test city")
+    rl.add_argument("--n-train", type=int, default=None)
+    rl.add_argument("--n-test", type=int, default=2000)
+    rl.add_argument("--max-traj", type=int, default=20000)
+    rl.add_argument("--epochs", type=int, default=5)
+    rl.add_argument("--bs", type=int, default=128)
+    rl.add_argument("--lr", type=float, default=1e-3)
+    rl.add_argument("--seeds", type=int, nargs="+", default=[0])
+    rl.add_argument("--device", default="cpu")
+    rl.add_argument("--out", default=None)
+
     cfgp = sub.add_parser("config", help="write a commented config template "
                                          "listing every hyperparameter")
     cfgp.add_argument("--write", default="geomob.toml",
@@ -401,7 +439,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     args._cfg_overrides = {
         sec: _cfg.section_overrides(cfg, sub.choices, sec)
-        for sec in ("gpe_suite", "downstream", "anomaly")} if cfg else {}
+        for sec in ("gpe_suite", "downstream", "anomaly", "relocate")} if cfg else {}
     args._subparsers = sub.choices
     args._cfg = cfg
     _cfg.start_run(args.cmd, argparse.Namespace(**{
@@ -465,6 +503,17 @@ def _dispatch(args):
                    seeds=tuple(args.seeds), search_seed=args.search_seed,
                    device=args.device, out_dir=args.out_dir,
                    resume=not args.no_resume)
+
+    if args.cmd == "relocate":
+        from .experiments.exp_relocate import run as _rl
+        return _rl(datasets=tuple(args.datasets), paths=_paths(args.paths),
+                   tasks=tuple(args.tasks), channels=args.channels,
+                   kinds=tuple(args.kinds), latitudes=tuple(args.latitudes),
+                   angles=tuple(args.angles), shifts_km=tuple(args.shifts_km),
+                   n_train=args.n_train, n_test=args.n_test,
+                   max_traj=args.max_traj, epochs=args.epochs, bs=args.bs,
+                   lr=args.lr, seeds=tuple(args.seeds), device=args.device,
+                   out=args.out)
 
     if args.cmd == "selfcheck":
         from .selfcheck import run as _sc

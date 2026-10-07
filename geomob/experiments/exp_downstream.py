@@ -620,6 +620,9 @@ def task_anomaly(trajs, encoders, backbones, seeds, cfg):
                       f"({time.perf_counter() - t0:.0f}s)")
             raw.setdefault(key, {})[kind] = {
                 sc: _mean_dict([r[sc] for r in runs]) for sc in SCORES}
+            raw[key][kind]["_seeds"] = [
+                {"seed": int(sd), **{sc: {"all": r[sc]["all"]} for sc in SCORES}}
+                for sd, r in zip(seeds, runs)]
 
     triv = {f"[trivial] {n}": per_type(s) for n, s in trivial_scores(items, ref).items()}
     checks = {}
@@ -680,7 +683,11 @@ def _grid(run, encoders, backbones, seeds, task):
                 print(f"  [{task}] {ENCODER_NAMES[key]:22s} {kind:11s} seed {seed}  "
                       + "  ".join(f"{a}={b:.3f}" for a, b in list(head.items())[:4])
                       + f"  ({time.perf_counter() - t0:.0f}s)")
-            res.setdefault(key, {})[kind] = _mean_dict(runs)
+            cell = _mean_dict(runs)
+            # keep every seed's numbers: they are the replicates behind the
+            # paired tests and the per-seed critical-difference blocks
+            cell["_seeds"] = [{"seed": int(sd), **r} for sd, r in zip(seeds, runs)]
+            res.setdefault(key, {})[kind] = cell
     return res
 
 

@@ -28,13 +28,14 @@ from pathlib import Path
 from ..data import dataset_status
 
 REAL = ("tdrive", "porto", "roma", "ais", "geolife")
-STEPS = ("gpe_suite", "downstream", "anomaly_synth", "figures")
+STEPS = ("gpe_suite", "downstream", "relocate", "anomaly_synth", "figures")
 
 
 # options a step fixes itself, so a config section cannot redirect them
 _FIXED = {"gpe_suite": {"paths", "out"},
           "downstream": {"dataset", "path", "out"},
-          "anomaly": {"dataset", "path", "out"}}
+          "anomaly": {"dataset", "path", "out"},
+          "relocate": {"paths", "out"}}
 
 
 def _step_kwargs(fn, step, defaults, overrides):
@@ -172,6 +173,24 @@ def run(paths=None, datasets=REAL, steps=STEPS, out_dir="results",
             raise RuntimeError("downstream failed on every dataset")
         return info
 
+    # 3b -----------------------------------------------------------------
+    def relocate():
+        if not avail:
+            return "no real corpus available"
+        from .exp_relocate import run as rl
+        f = out_dir / "relocate.json"
+        kw = _step_kwargs(rl, "relocate", dict(
+            datasets=tuple(datasets), n_test=200 if q else 2000,
+            max_traj=1500 if q else 20000, epochs=1 if q else 5,
+            latitudes=(0.0, 40.0, 70.0) if q else (0.0, 20.0, 40.0, 60.0, 70.0),
+            angles=(0.0, 45.0, 90.0) if q else (0.0, 15.0, 30.0, 45.0, 60.0, 90.0),
+            shifts_km=(0.0, 100.0) if q else (0.0, 1.0, 10.0, 100.0, 1000.0),
+            seeds=seeds, device=device), overrides)
+        record("relocate", rl, kw)
+        res = rl(paths=paths, out=str(f), **kw)
+        return {"out": str(f), "used": list(res["datasets"]),
+                "skipped": res.get("skipped_datasets", {})}
+
     # 4 ------------------------------------------------------------------
     def anomaly_synth():
         from .exp_anomaly import run as an
@@ -194,6 +213,7 @@ def run(paths=None, datasets=REAL, steps=STEPS, out_dir="results",
 
     step("gpe_suite", gpe_suite)
     step("downstream", downstream)
+    step("relocate", relocate)
     step("anomaly_synth", anomaly_synth)
     step("figures", figures)
 

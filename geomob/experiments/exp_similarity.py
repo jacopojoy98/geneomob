@@ -273,8 +273,10 @@ def run_transfer(src="synthetic", dst="synthetic", src_path=None, dst_path=None,
             dst_trajs.append(Traj(enu_to_lonlat((xy - c) * dst_scale + c, ref), t.t))
         dst_name = f"{src}x{dst_scale}"
     elif dst_lat is not None:
-        dst_trajs = [Traj(reproject_to_latitude(t.lonlat, dst_lat), t.t)
-                     for t in src_trajs]
+        # the whole city as one rigid body (relocating each trip separately
+        # would stack them all on one point and destroy the city layout)
+        from ..data import relocate_city
+        dst_trajs = relocate_city(src_trajs, lat=dst_lat)
         dst_name = f"{src}@lat{dst_lat}"
     else:
         dst_trajs = load_dataset(dst, dst_path, **load_kw)

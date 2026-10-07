@@ -304,6 +304,9 @@ def run_local_global(data, encoders, kinds, cfg, seeds):
                     reps.append(train_and_evaluate(key, src, data, kind, cfg,
                                                    seed=seed))
                 r = reps[0] if len(reps) == 1 else _merge_seeds(reps)
+                r["seeds"] = [{"seed": int(sd), "local": dict(x["local"]),
+                               "global": copy.deepcopy(x["global"])}
+                              for sd, x in zip(seeds, reps)]
                 per_ds[src] = r
                 # the last entry is the most favourable legitimate protocol
                 # (re-anchored frame where one exists), printed for a glance

@@ -53,8 +53,10 @@ def run_architectures(dataset="synthetic_hard", path=None,
     if dataset.startswith("synthetic"):
         trajs = trajs[:n_train + n_test]
     train, test = _split(trajs, dataset, split, n_train, n_test, seed)
-    dst = ([Traj(reproject_to_latitude(t.lonlat, transfer_lat), t.t, t.uid)
-            for t in test] if transfer_lat is not None else None)
+    # the whole test city as one rigid body, not trip by trip
+    from ..data import relocate_city
+    dst = (relocate_city(test, lat=transfer_lat)
+           if transfer_lat is not None else None)
 
     res = {"dataset": dataset, "kinds": list(kinds), "n_train": len(train),
            "n_test": len(test), "transfer_lat": transfer_lat, "cells": {}}

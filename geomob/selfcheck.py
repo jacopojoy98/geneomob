@@ -39,6 +39,7 @@ REQUIRED = {
     "geomob.experiments.exp_gpe_suite": ["run", "load_corpora"],
     "geomob.experiments.run_all": ["run"],
     "geomob.experiments.exp_search": ["run", "check_space"],
+    "geomob.experiments.exp_relocate": ["run", "CanonicalFrame"],
     "geomob.figures": ["save", "use_paper_style"],
     "geomob.figures.builders": [],
     "geomob.figures.builders_suite": ["fig_gpe_suite", "fig_downstream"],

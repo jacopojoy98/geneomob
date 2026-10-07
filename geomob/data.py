@@ -639,6 +639,43 @@ def space_shift(trajs: list[Traj], src_box, dst_box) -> list[Traj]:
     return [Traj((tr.lonlat - slo) * scale + dlo, tr.t, tr.uid) for tr in trajs]
 
 
+def relocate_city(trajs: list[Traj], lat: float | None = None,
+                  lon: float | None = None, rotate_deg: float = 0.0,
+                  shift_km: tuple = (0.0, 0.0), ref=None) -> list[Traj]:
+    """Move a whole corpus as one rigid body, preserving every metric relation.
+
+    All trajectories are projected to metres about the corpus centroid (`ref`),
+    optionally rotated about it by `rotate_deg`, and laid back down around a
+    new centre: the same city, on the ground, somewhere else on the globe
+    and/or with its street grid turned. Distances, angles between trips,
+    durations and the relative position of every trip are unchanged; only the
+    (lon, lat) coordinates differ.
+
+    `lat` / `lon` set the new centre (default: unchanged); `shift_km` moves it
+    east / north by that many kilometres instead.
+    """
+    from .geo import R_EARTH, enu_to_lonlat, lonlat_to_enu, rot2
+    if ref is None:
+        ref = np.concatenate([t.lonlat for t in trajs]).mean(0)
+    ref = np.asarray(ref, dtype=np.float64)
+    new = ref.copy()
+    if lon is not None:
+        new[0] = lon
+    if lat is not None:
+        new[1] = lat
+    new[1] += np.rad2deg(shift_km[1] * 1000.0 / R_EARTH)
+    new[0] += np.rad2deg(shift_km[0] * 1000.0
+                         / (R_EARTH * np.cos(np.deg2rad(new[1]))))
+    R = rot2(np.deg2rad(rotate_deg)).T
+    out = []
+    for t in trajs:
+        xy = lonlat_to_enu(t.lonlat, ref)[0]
+        if rotate_deg:
+            xy = xy @ R
+        out.append(Traj(enu_to_lonlat(xy, new), t.t, t.uid, t.label))
+    return out
+
+
 def bbox(trajs: list[Traj]):
     ll = np.concatenate([t.lonlat for t in trajs])
     return np.min(ll, 0), np.max(ll, 0)

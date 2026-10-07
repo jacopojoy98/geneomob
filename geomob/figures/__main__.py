@@ -19,6 +19,7 @@ from .style import save, use_paper_style
 
 # Detection rules: (predicate on the parsed JSON, builder, default figure name)
 RULES = [
+    (lambda d: d.get("relocate") is True and "datasets" in d, "relocate", None),
     (lambda d: "tasks" in d and "backbones" in d, "downstream", None),
     (lambda d: "parts" in d and "datasets" in d, "gpe_suite", None),
     (lambda d: "encoders" in d and "latitude" in d, "audit", None),
@@ -39,6 +40,21 @@ RULES = [
 ]
 
 CAPTIONS = {
+    "fig_relocate":
+        "Relocated-city test. Each model is trained once on the city where it "
+        "is; the test set is then moved as a rigid body to another latitude, "
+        "turned about its centre, or shifted east, leaving every distance and "
+        "angle on the ground unchanged. All rows are zero-shot. The "
+        "canonical-frame rows re-fit their frame (centroid and principal axes) "
+        "on the moved city without labels and are flat by construction; the "
+        "grey row feeds GPE the same canonical coordinates, separating the "
+        "effect of the frame from that of the encoding.",
+    "fig_paired":
+        "GEO against GPE with matched channels, one row per setting (dataset, "
+        "task, sequence model, metric). The point is the mean relative "
+        "improvement of GEO over seeds, the bar its 95\\% interval; filled "
+        "points are significant in a paired $t$-test over seeds after Holm "
+        "correction across all settings.",
     "fig_by_dataset":
         "The same task on every dataset, one panel per dataset. Bars are the "
         "encoders, hatching the sequence model. Each panel has its own scale: "
@@ -186,6 +202,10 @@ def build_from(path: Path):
                 continue
         except Exception:
             continue
+        if kind == "relocate":
+            from . import builders_compare as C
+            TABLES.append(C.tex_relocate(data))
+            return C.fig_relocate(data)
         if kind == "downstream":
             from . import builders_suite as S
             TABLES.append(S.tex_downstream(data))
