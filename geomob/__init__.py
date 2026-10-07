@@ -10,4 +10,4 @@ Modules
     metrics       GPE's MR/MRR/MP/KP protocol, mobility-statistic probes
     models        GPE-comparable backbone, equivariant aggregator (torch)
 """
-__version__ = "0.6.0"
+__version__ = "0.6.1"

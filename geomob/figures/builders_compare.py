@@ -278,6 +278,7 @@ def cd_stats(blocks, meths, alpha_q=Q05):
     out = {"n_blocks": N, "k": k, "methods": meths,
            "avg_rank": {m: float(a) for m, a in zip(meths, avg)},
            "wins": {m: int((ranks[:, i] == 1).sum()) for i, m in enumerate(meths)},
+           "tied_blocks": int(sum(len(set(np.round(row, 12))) < k for row in S)),
            "blocks": list(blocks)}
     out["cd"] = float(alpha_q[k] * np.sqrt(k * (k + 1) / (6.0 * N))) if k in alpha_q else None
     try:
@@ -286,9 +287,21 @@ def cd_stats(blocks, meths, alpha_q=Q05):
             st, p = friedmanchisquare(*[S[:, i] for i in range(k)])
             out["test"], out["p_value"] = "Friedman", float(p)
         else:
-            from scipy.stats import wilcoxon
-            st, p = wilcoxon(S[:, 0], S[:, 1])
-            out["test"], out["p_value"] = "Wilcoxon signed-rank", float(p)
+            # Sign test, not Wilcoxon: blocks mix metrics on different scales
+            # (a rank near 1, a rate in [0, 1], minutes), and Wilcoxon ranks
+            # the SIZE of the differences across blocks, so the large-scale
+            # metrics would decide it. The sign test only uses who won each
+            # block, which is also all the CD diagram itself uses.
+            from scipy.stats import binomtest
+            w0 = int((S[:, 0] > S[:, 1]).sum())
+            w1 = int((S[:, 1] > S[:, 0]).sum())
+            out["ties"] = int(N - w0 - w1)
+            if w0 + w1 == 0:
+                raise ValueError("all blocks tied")
+            p = binomtest(w0, w0 + w1, 0.5).pvalue
+            out["test"] = (f"sign test ({max(w0, w1)}-{min(w0, w1)}"
+                           + (f", {out['ties']} ties" if out["ties"] else "") + ")")
+            out["p_value"] = float(p)
     except ValueError:                      # e.g. all differences are zero
         out["test"], out["p_value"] = "n/a (no differences)", float("nan")
     return out
