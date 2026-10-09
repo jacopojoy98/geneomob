@@ -112,9 +112,18 @@ def make_tokenizer(key: str, task: str):
     speed = speed_encoder() if (ts and task != "eta") else None
     tim = time_encoder() if ts else None
     name = ENCODER_NAMES[key] + (" (departure time)" if ts and task == "eta" else "")
+    from .exp_gpe_suite import maybe_learnable_geo, maybe_learnable_gpe
+    # the anomaly autoencoder reconstructs its input tokens, so it keeps fixed
+    # codes (reconstructing raw metres would change what the score means)
+    learnable_ok = task != "anomaly"
     if key.startswith("gpe"):
+        if learnable_ok:
+            return maybe_learnable_gpe(gpe_encoder(), time=tim, speed=speed, name=name)
         return Tokenizer(loc=gpe_encoder(), time=tim, speed=speed, name=name)
     if key in ("geo", "geo_ts"):
+        if learnable_ok:
+            return maybe_learnable_geo(_geo_loc(), _geo_disp(), time=tim,
+                                       speed=speed, name=name)
         return Tokenizer(loc=_geo_loc(), disp=_geo_disp(), time=tim,
                          speed=speed, name=name)
     if key == "geo_disp_ts":
@@ -192,6 +201,17 @@ class Head(nn.Module):
         return self.out(self.enc(x, m))
 
 
+def _head(tok, out_dim, kind):
+    """A Head whose encoder starts with tok's learnable front end, if any."""
+    from ..learnable import attach
+    return attach(Head(tok.dim, out_dim, kind), tok)
+
+
+def _wavelengths(model):
+    from ..learnable import learned_wavelengths
+    return learned_wavelengths(model)
+
+
 class SeqDecoder(nn.Module):
     """Decode a whole token sequence from a bottleneck code z."""
 
@@ -245,9 +265,13 @@ class AutoEncoder(nn.Module):
 class Standardiser:
     """Per-dimension token standardisation, fitted on the training split."""
 
-    def fit(self, X):
+    def fit(self, X, skip=None):
+        """`skip`: columns left as they are (raw geometry that a learnable
+        front end turns into codes; its wavelengths are in metres)."""
         A = np.concatenate(X, 0)
         self.mu, self.sd = A.mean(0), A.std(0) + 1e-6
+        if skip:
+            self.mu[skip], self.sd[skip] = 0.0, 1.0
         return self
 
     def __call__(self, X):
@@ -406,14 +430,16 @@ def task_tul(trajs, encoders, backbones, seeds, cfg):
     def run(key, kind, seed):
         tok = make_tokenizer(key, "tul")
         tok.fit(train)
-        S = Standardiser().fit([tok(t) for t in train])
+        S = Standardiser().fit([tok(t) for t in train], getattr(tok, "raw_cols", None))
         Xtr, Xte = S([tok(t) for t in train]), S([tok(t) for t in test])
         yt = torch.from_numpy(ytr).long()
-        model = Head(tok.dim, C, kind)
+        model = _head(tok, C, kind)
         _fit(model, Xtr, lambda M, x, m, b: nn.functional.cross_entropy(
             M(x, m), yt[b].to(x.device)), cfg["epochs"], cfg["bs"], cfg["lr"],
             cfg["device"], seed)
-        return classification_metrics(_apply(model, Xte, cfg["device"]), yte, C)[0]
+        met = classification_metrics(_apply(model, Xte, cfg["device"]), yte, C)[0]
+        lw = _wavelengths(model)
+        return {**met, **({"_wavelengths_m": lw} if lw else {})}
 
     return _grid(run, encoders, backbones, seeds, "tul"), base, \
         {"n_users": C, "n_train": len(train), "n_test": len(test)}
@@ -456,16 +482,18 @@ def task_eta(trajs, encoders, backbones, seeds, cfg):
     def run(key, kind, seed):
         tok = make_tokenizer(key, "eta")
         tok.fit([it[0] for it in train])
-        S = Standardiser().fit([tok(it[0]) for it in train])
+        S = Standardiser().fit([tok(it[0]) for it in train], getattr(tok, "raw_cols", None))
         Xtr = S([tok(it[0]) for it in train])
         Xte = S([tok(it[0]) for it in test])
         yt = torch.from_numpy(((ytr - mu) / scale).astype(np.float32))
-        model = Head(tok.dim, 1, kind)
+        model = _head(tok, 1, kind)
         _fit(model, Xtr, lambda M, x, m, b: nn.functional.mse_loss(
             M(x, m).squeeze(-1), yt[b].to(x.device)), cfg["epochs"], cfg["bs"],
             cfg["lr"], cfg["device"], seed)
         pred = _apply(model, Xte, cfg["device"]).squeeze(-1) * scale + mu
-        return regression_metrics(pred, yte)
+        met = regression_metrics(pred, yte)
+        lw = _wavelengths(model)
+        return {**met, **({"_wavelengths_m": lw} if lw else {})}
 
     return _grid(run, encoders, backbones, seeds, "eta"), base, \
         {"n_train": len(train), "n_test": len(test), "step_m": cfg["eta_step_m"]}
@@ -520,16 +548,17 @@ def task_mode(trajs, encoders, backbones, seeds, cfg):
     def run(key, kind, seed):
         tok = make_tokenizer(key, "mode")
         tok.fit(train)
-        S = Standardiser().fit([tok(t) for t in train])
+        S = Standardiser().fit([tok(t) for t in train], getattr(tok, "raw_cols", None))
         Xtr, Xte = S([tok(t) for t in train]), S([tok(t) for t in test])
         yt = torch.from_numpy(ytr).long()
-        model = Head(tok.dim, C, kind)
+        model = _head(tok, C, kind)
         _fit(model, Xtr, lambda M, x, m, b: nn.functional.cross_entropy(
             M(x, m), yt[b].to(x.device)), cfg["epochs"], cfg["bs"], cfg["lr"],
             cfg["device"], seed)
         met, pc = classification_metrics(_apply(model, Xte, cfg["device"]), yte, C)
         per_class.setdefault(f"{key}/{kind}", []).append(pc)
-        return met
+        lw = _wavelengths(model)
+        return {**met, **({"_wavelengths_m": lw} if lw else {})}
 
     grid = _grid(run, encoders, backbones, seeds, "mode")
     return grid, base, {"classes": classes, "n_train": len(train),
@@ -579,7 +608,7 @@ def task_anomaly(trajs, encoders, backbones, seeds, cfg):
     def run(key, kind, seed):
         tok = make_tokenizer(key, "anomaly")
         tok.fit(train)
-        S = Standardiser().fit([tok(t) for t in train])
+        S = Standardiser().fit([tok(t) for t in train], getattr(tok, "raw_cols", None))
         Xtr = S([tok(t) for t in train])
         Xte = S([tok(it.traj) for it in items])
         model = AutoEncoder(tok.dim, kind, z_dim=cfg["z_dim"])
@@ -661,6 +690,8 @@ def _mean_dict(ds):
     """Mean (and std, when >1 seed) of nested metric dicts."""
     out = {}
     for k in ds[0]:
+        if k.startswith("_"):           # per-run extras (e.g. wavelengths)
+            continue
         if isinstance(ds[0][k], dict):
             out[k] = _mean_dict([d[k] for d in ds])
         else:

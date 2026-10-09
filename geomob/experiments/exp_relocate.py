@@ -109,6 +109,9 @@ class FramedTokenizer:
         self.frame.fit(trajs)
         if hasattr(self.inner.loc, "ref_deg"):
             self.inner.loc.ref_deg = np.zeros(2)
+        if hasattr(self.inner, "ref_rad"):      # learnable GPE: precision anchor
+            self.inner.fit([Traj(self.frame.to_pseudo_lonlat(t.lonlat), t.t)
+                            for t in trajs], force=True)
         return self
 
     def refit(self, trajs):
@@ -118,6 +121,14 @@ class FramedTokenizer:
     def __call__(self, traj):
         return self.inner(Traj(self.frame.to_pseudo_lonlat(traj.lonlat),
                                traj.t, traj.uid))
+
+    def __getattr__(self, n):
+        # expose a learnable inner tokenizer's front end / raw columns
+        if n in ("inner", "frame", "name") or n.startswith("__"):
+            raise AttributeError(n)
+        if n in ("frontend", "raw_cols"):
+            return getattr(self.inner, n)
+        raise AttributeError(n)
 
 
 # --------------------------------------------------------------------------
@@ -155,9 +166,10 @@ class _Supervised:
         import torch
         from . import exp_downstream as D
         c = self.cfg
-        S = D.Standardiser().fit([tok(t) for t in self.train])
+        S = D.Standardiser().fit([tok(t) for t in self.train],
+                                 getattr(tok, "raw_cols", None))
         X = S([tok(t) for t in self.train])
-        model = D.Head(tok.dim, self.out_dim, kind)
+        model = D._head(tok, self.out_dim, kind)
         y = torch.from_numpy(self.y_train_t)
         D._fit(model, X, lambda M, x, m, b: self.loss(M(x, m), y[b].to(x.device)),
                c["epochs"], min(c["bs"], 64), c["lr"], c["device"], seed)

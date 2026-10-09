@@ -29,6 +29,7 @@ REQUIRED = {
     "geomob.anomaly": ["EXPECTED", "build_anomaly_set"],
     "geomob.graph": ["hit_ratio_at_k", "tie_fraction", "build_node_graph"],
     "geomob.models": ["TrajEncoder", "nce_loss"],
+    "geomob.learnable": ["LearnableGEO", "LearnableGPE", "FrontEnd"],
     "geomob.experiments.exp_similarity": ["Tokenizer", "train_contrastive"],
     "geomob.experiments.exp_a_task": ["run"],
     "geomob.experiments.exp_anomaly": ["run"],
@@ -46,7 +47,7 @@ REQUIRED = {
     "geomob.figures.builders_compare": ["build", "fig_cd", "cd_stats"],
     "geomob.figures.__main__": ["main"],
 }
-TORCH_MODULES = {"geomob.models"} | {m for m in REQUIRED
+TORCH_MODULES = {"geomob.models", "geomob.learnable"} | {m for m in REQUIRED
                                      if m.startswith("geomob.experiments")}
 
 

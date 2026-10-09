@@ -67,6 +67,10 @@ _HP_DEFAULTS = {
         "speed_scales": 6,              # SpeedGEO ladder
         "speed_lo": 0.05,
         "speed_hi": 60.0,
+        "learn_lambdas": "none",        # none | loc | disp | both
+        "learn_lambda_min_m": 0.0,      # scales starting below this stay fixed
+        "lambda_lr_scale": 1.0,         # speed at which log-wavelengths move
+        "gpe_learn_freqs": False,       # fairness control: GPE learns too
     },
 }
 HP = copy.deepcopy(_HP_DEFAULTS)
@@ -342,6 +346,10 @@ ENCODER_HELP = {
     "speed_scales": "SpeedGEO scales (dt and speed)",
     "speed_lo": "SpeedGEO shortest wavelength (log1p units)",
     "speed_hi": "SpeedGEO longest wavelength (log1p units)",
+    "learn_lambdas": "GEO wavelengths trained with the model instead of fixed: none, loc (location), disp (radial), both. They start on the lam_min..lam_max ladder; equivariance is kept for any value",
+    "learn_lambda_min_m": "scales whose initial wavelength is below this (metres) stay fixed: for short wavelengths the gradient is mostly noise. 0 = learn all",
+    "lambda_lr_scale": "how fast the log-wavelengths move relative to the other weights (1 = same step size)",
+    "gpe_learn_freqs": "let GPE learn its frequencies too (fairness control when GEO learns its wavelengths)",
 }
 MODEL_HELP = {
     "hidden": "width of every sequence model (LSTM / Transformer / GNN)",

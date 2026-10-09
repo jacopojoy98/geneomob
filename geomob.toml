@@ -61,6 +61,14 @@ speed_scales = 6
 speed_lo = 0.05
 # SpeedGEO longest wavelength (log1p units)
 speed_hi = 60.0
+# GEO wavelengths trained with the model instead of fixed: none, loc (location), disp (radial), both. They start on the lam_min..lam_max ladder; equivariance is kept for any value
+learn_lambdas = "none"
+# scales whose initial wavelength is below this (metres) stay fixed: for short wavelengths the gradient is mostly noise. 0 = learn all
+learn_lambda_min_m = 0.0
+# how fast the log-wavelengths move relative to the other weights (1 = same step size)
+lambda_lr_scale = 1.0
+# let GPE learn its frequencies too (fairness control when GEO learns its wavelengths)
+gpe_learn_freqs = false
 
 [search_space]
 # used by `python -m geomob.cli search`: for any [encoders] or [model]

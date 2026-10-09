@@ -161,13 +161,35 @@ def _default_h():
     return _enc_hp()["h"]
 
 
+def maybe_learnable_geo(loc, disp, time=None, speed=None, name="GEO"):
+    """A fixed GEO tokenizer, or -- with [encoders] learn_lambdas set -- the
+    same channels with trainable wavelengths initialised from them."""
+    from .exp_similarity import Tokenizer
+    e = _enc_hp()
+    if e.get("learn_lambdas", "none") in (None, "none", False):
+        return Tokenizer(loc=loc, disp=disp, time=time, speed=speed, name=name)
+    from ..learnable import LearnableGEO
+    return LearnableGEO(loc, disp, time=time, speed=speed, learn=e["learn_lambdas"],
+                        min_m=e["learn_lambda_min_m"], kappa=e["lambda_lr_scale"],
+                        name=name)
+
+
+def maybe_learnable_gpe(gpe, time=None, speed=None, name="GPE"):
+    from .exp_similarity import Tokenizer
+    e = _enc_hp()
+    if not e.get("gpe_learn_freqs", False):
+        return Tokenizer(loc=gpe, time=time, speed=speed, name=name)
+    from ..learnable import LearnableGPE
+    return LearnableGPE(gpe, min_m=e["learn_lambda_min_m"],
+                        kappa=e["lambda_lr_scale"], name=name, time=time, speed=speed)
+
+
 def make_geo(h: int | None = None):
     """GEO at total dimension h: half location lattice, half displacement."""
-    from .exp_similarity import Tokenizer
     h = h or _default_h()
     loc, disp = geo_parts(h)
-    return Tokenizer(loc=loc, disp=disp,
-                     name=f"GEO (h={h})" if h != _default_h() else "GEO")
+    return maybe_learnable_geo(loc, disp,
+                               name=f"GEO (h={h})" if h != _default_h() else "GEO")
 
 
 def make_encoder(key: str, h: int | None = None):
@@ -175,7 +197,7 @@ def make_encoder(key: str, h: int | None = None):
     h = h or _default_h()
     tag = f" (h={h})" if h != _default_h() else ""
     if key == "gpe":
-        return Tokenizer(loc=gpe_encoder(h), name="GPE" + tag)
+        return maybe_learnable_gpe(gpe_encoder(h), name="GPE" + tag)
     if key == "geo":
         return make_geo(h)
     if key == "xy":
@@ -261,10 +283,14 @@ def train_and_evaluate(key, src, data, kind, cfg, h=None, seed=0):
                               bs=cfg["bs"], lr=cfg["lr"], device=cfg["device"],
                               seed=seed)
     t_model = time.perf_counter() - t0
+    from ..learnable import learned_wavelengths
+    lw = learned_wavelengths(model)
     row = {"local": evaluate(model, tok, test, cfg["device"]),
            "time_s": {"position": t_pre, "model": t_model,
                       "total": t_pre + t_model},
            "global": {}, "dim": tok.dim}
+    if lw:
+        row["learned_wavelengths_m"] = lw
 
     for dst, (dtrain, dtest) in data.items():
         if dst == src:

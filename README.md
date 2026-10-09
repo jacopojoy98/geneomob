@@ -84,6 +84,28 @@ python -m geomob.cli gpe_suite --config results/gpe_suite.config.toml
 Under `run_all`, each step's JSON records the options that step actually ran
 with, and `run_all_status.json` records the `run_all` invocation itself.
 
+## Learned wavelengths
+
+```toml
+[encoders]
+learn_lambdas = "both"        # none (default) | loc | disp | both
+learn_lambda_min_m = 0.0      # scales starting below this stay fixed
+lambda_lr_scale = 1.0         # how fast log-wavelengths move (try 5-10 on small data)
+gpe_learn_freqs = true        # fairness control: GPE learns its frequencies too
+```
+
+The wavelengths start on the usual lam_min..lam_max ladder and are trained with
+the model (parametrised as log lam, so they stay positive). Equivariance is
+kept for any value: each location block still rotates under a translation,
+only by an angle set by the learned wavelength; the radial block still depends
+on |dx| alone. At initialisation the learnable pipeline reproduces the fixed
+codes to ~1e-4 (phases are computed in float64). The learned wavelengths are
+saved in every results file (`learned_wavelengths_m` in gpe_suite,
+`_wavelengths_m` per seed in downstream). Works in gpe_suite, downstream
+(TUL / ETA / mode), search and relocate; the anomaly autoencoder keeps fixed
+codes because it reconstructs its input. `learn_lambdas` can itself go in
+`[search_space]`.
+
 ## Seeds as replicates, and GEO against GPE head to head
 
 Set several seeds (`[common] seeds = [0, 1, 2, 3, 4]`). Every results file now
