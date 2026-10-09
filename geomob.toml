@@ -40,15 +40,15 @@ geo_loc_dims = 0
 # number of torus-lattice scales; 0 = h // 8
 geo_loc_scales = 0
 # finest location wavelength (m)
-geo_loc_lam_min_m = 25.0
+geo_loc_lam_min_m = 400.0
 # coarsest location wavelength (m)
 geo_loc_lam_max_m = 200000.0
 # radial displacement scales; 0 = (h/2 - 4) / 2
 geo_disp_scales = 0
 # finest displacement wavelength (m)
-geo_disp_lam_min_m = 5.0
+geo_disp_lam_min_m = 10.0
 # coarsest displacement wavelength (m)
-geo_disp_lam_max_m = 20000.0
+geo_disp_lam_max_m = 10000.0
 # angular harmonics of the displacement channel (m=4: street-grid order)
 geo_harmonics = [1, 4]
 # cyclic C24 harmonics
@@ -66,12 +66,12 @@ speed_hi = 60.0
 # used by `python -m geomob.cli search`: for any [encoders] or [model]
 # key, the list of values to try. Every combination is a trial (grid),
 # or a random subset of them (method = "random" in [search]).
-geo_loc_lam_min_m = [200.0, 300.0, 400.0]
-geo_loc_lam_max_m = [10000.0, 20000.0, 50000.0]
-geo_disp_lam_min_m = [10.0, 50.0]
-geo_disp_lam_max_m = [1000.0, 10000.0]
-geo_harmonics = [[1, 4, 6, 8],[1, 4, 6, 8, 10]]
-geo_loc_dims = [64, 80, 96, 112]   # location share of h; 124 = no radial part
+# geo_loc_lam_min_m = [10, 400.0, 600]
+geo_loc_lam_max_m = [50000.0, 100000.0, 300000.0]
+# geo_disp_lam_min_m = [1, 10.0, 50.0]
+# geo_disp_lam_max_m = [1000.0]
+geo_harmonics = [[1, 4],[1, 4, 6, 8, 10]]
+geo_loc_dims = [112, 116, 120, 124]   # location share of h; 124 = no radial part
 
 [run_all]
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
@@ -171,7 +171,7 @@ geo_loc_dims = [64, 80, 96, 112]   # location share of h; 124 = no radial part
 # road_lambda = 0.5
 # cell_m = 200.0
 # graph_path =
-# seeds = [0]
+seeds = [0, 1, 2, 3, 4]
 # device = "cpu"
 # out =
 
@@ -341,14 +341,14 @@ kind = "transformer"
 # similarity is the control; eta and mode are the supervised tasks whose answer does not depend on where the city is (mode needs GeoLife labels)
 # tasks = ["similarity", "eta", "mode"]
 # spatial = GPE vs GEO as in gpe_suite; ts = both with time and speed added (eta and mode only)
-# channels = "spatial"
-# kinds = ["lstm"]
+channels = "spatial"
+kinds = ["lstm", "transformer"]
 # latitudes (degrees north) the test city is moved to
-# latitudes = [0.0, 20.0, 40.0, 60.0, 70.0]
+latitudes = [0.0, 20.0, 60.0, 70.0]
 # rotations (degrees) of the test city about its centre
-# angles = [0.0, 15.0, 30.0, 45.0, 60.0, 90.0]
+angles = [0.0, 30.0, 60.0, 90.0]
 # eastward shifts (km) of the test city
-# shifts_km = [0.0, 1.0, 10.0, 100.0, 1000.0]
+shifts_km = [0.0, 10.0, 100.0, 1000.0]
 # n_train =
 # n_test = 2000
 # max_traj = 20000
