@@ -17,7 +17,7 @@
 
 [common]
 # applied to every command that has the option
-# device = "cuda"
+device = "cuda"
 # seeds = [0, 1, 2]
 
 [model]
@@ -74,12 +74,12 @@ gpe_learn_freqs = false
 # used by `python -m geomob.cli search`: for any [encoders] or [model]
 # key, the list of values to try. Every combination is a trial (grid),
 # or a random subset of them (method = "random" in [search]).
-# geo_loc_lam_min_m = [10.0, 25.0, 50.0]
-# geo_loc_lam_max_m = [50000.0, 200000.0]
-# geo_disp_lam_min_m = [2.0, 5.0, 10.0]
-# geo_disp_lam_max_m = [5000.0, 20000.0]
-# geo_harmonics = [[1], [1, 4], [1, 2, 4]]
-# geo_loc_dims = [64, 80, 96, 112, 124]   # location share of h; 124 = no radial part
+geo_loc_lam_min_m = [200.0, 300.0, 400.0]
+geo_loc_lam_max_m = [10000.0, 20000.0, 50000.0]
+geo_disp_lam_min_m = [10.0, 50.0]
+geo_disp_lam_max_m = [1000.0, 10000.0]
+geo_harmonics = [[1, 4, 6, 8],[1, 4, 6, 8, 10]]
+geo_loc_dims = [64, 80, 96, 112]   # location share of h; 124 = no radial part
 
 [run_all]
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
@@ -313,9 +313,9 @@ gpe_learn_freqs = false
 
 [search]
 # what a trial is scored on: trajectory similarity (any dataset) or a GeoLife downstream task
-# objective = "similarity"
+objective = "similarity"
 # similarity: KP@10 (default), MRR, MP, MR, global_MRR; tul: acc@1 (default), acc@5, macro_F1; eta: MAE (default), RMSE, MAPE; mode: macro_F1 (default), acc@1
-# metric =
+# metric = "MR" 
 # grid = every combination; random = n_trials of them
 # method = "grid"
 # number of combinations when method = random
@@ -324,7 +324,7 @@ gpe_learn_freqs = false
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
 # default: geo for similarity, geo_ts (with time and speed) for the downstream objectives
 # encoder =
-# kind = "lstm"
+kind = "transformer"
 # training epochs per trial (keep small: this is multiplied by the number of trials)
 # epochs = 3
 # bs = 128
