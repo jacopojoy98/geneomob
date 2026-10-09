@@ -137,7 +137,9 @@ def train_contrastive(tok, trajs, kind="lstm", epochs=5, bs=128, lr=1e-3,
                       device="cpu", seed=0, model=None, freeze=False):
     set_seed(seed)
     rng = np.random.default_rng(seed)
-    model = model or TrajEncoder(tok.dim, kind=kind).to(device)
+    if model is None:
+        from ..learnable import attach      # learnable wavelengths, if any
+        model = attach(TrajEncoder(tok.dim, kind=kind), tok).to(device)
     if freeze:
         return model
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
