@@ -537,7 +537,35 @@ def load_dataset(name: str, path: str | None = None, **kw) -> list[Traj]:
             f"dataset '{name}' loaded 0 trajectories from {path}. Check the "
             f"path points at the data, and that the length filters are not "
             f"excluding everything (min_len / gap thresholds).")
+    box = BBOX_FILTERS.get(name)
+    if box:
+        trajs = filter_bbox(trajs, box, name)
+        if not trajs:
+            raise ValueError(f"dataset '{name}': no trajectory lies inside the "
+                             f"[filters] box {list(box)}")
     return trajs
+
+
+# [filters] in the config: dataset -> (lon_min, lat_min, lon_max, lat_max)
+BBOX_FILTERS: dict = {}
+
+
+def filter_bbox(trajs, box, name="", min_inside=1.0):
+    """Keep trajectories whose points all lie inside the box (or at least the
+    fraction `min_inside` of them). GeoLife, for instance, contains trips far
+    outside Beijing, which pull every centroid away from the city and stretch
+    a local flat map over thousands of kilometres."""
+    lo_lon, lo_lat, hi_lon, hi_lat = box
+    out = []
+    for t in trajs:
+        ll = t.lonlat
+        inside = ((ll[:, 0] >= lo_lon) & (ll[:, 0] <= hi_lon)
+                  & (ll[:, 1] >= lo_lat) & (ll[:, 1] <= hi_lat))
+        if inside.mean() >= min_inside:
+            out.append(t)
+    print(f"  [filters] {name}: kept {len(out)} of {len(trajs)} trajectories "
+          f"inside lon {lo_lon}..{hi_lon}, lat {lo_lat}..{hi_lat}")
+    return out
 
 
 # --------------------------------------------------------------------------

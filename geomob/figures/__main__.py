@@ -42,13 +42,32 @@ RULES = [
 CAPTIONS = {
     "fig_relocate":
         "Relocated-city test. Each model is trained once on the city where it "
-        "is; the test set is then moved as a rigid body to another latitude, "
-        "turned about its centre, or shifted east, leaving every distance and "
-        "angle on the ground unchanged. All rows are zero-shot. The "
-        "canonical-frame rows re-fit their frame (centroid and principal axes) "
-        "on the moved city without labels and are flat by construction; the "
-        "grey row feeds GPE the same canonical coordinates, separating the "
-        "effect of the frame from that of the encoding.",
+        "is; the test city is then moved as a rigid body to another latitude, "
+        "turned about its centre, or shifted east, which leaves every distance "
+        "and angle on the ground unchanged. Nothing is retrained. Colour is the "
+        "encoding (GPE orange, GEO blue); line style is the frame: dotted with "
+        "hollow markers keeps the coordinates of the training city, solid with "
+        "filled markers re-fits the frame (origin and axes) on the moved city "
+        "without labels. The leftmost point of each panel is the city in place; "
+        "bands are $\\pm$1 standard deviation over seeds. GPE in the re-fitted "
+        "frame is a diagnostic that separates the effect of the frame from that "
+        "of the encoding.",
+    "fig_relocate_similarity":
+        "Relocated-city test on trajectory similarity, the control task: "
+        "queries and database move together, so the ground-truth ranking is "
+        "unchanged and only a model that reads absolute position can change "
+        "its answer. Encoding and line style as in the main relocation figure.",
+    "fig_relocate_all":
+        "Relocated-city test with every variant (appendix). Besides the four "
+        "main lines: GEO with only the origin re-fitted (axes kept), and GPE "
+        "with its bounding box remapped onto the moved city, an ablation that "
+        "aligns GPE's coordinate range without changing its encoding.",
+    "fig_relocate_summary":
+        "Relocated-city test, summary. For each task (row) and dataset "
+        "(column), every method's score with the city in place (filled) and "
+        "its worst score over all moves (hollow), with the relative change; "
+        "red marks a loss above 5\\%. A method that does not depend on where "
+        "the city is has the two points on top of each other.",
     "fig_paired":
         "GEO against GPE with matched channels, one row per setting (dataset, "
         "task, sequence model, metric). The point is the mean relative "

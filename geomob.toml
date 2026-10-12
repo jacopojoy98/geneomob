@@ -15,6 +15,14 @@
 # ais = "/path/to/ais"
 # csv = "/path/to/csv"
 
+[filters]
+# OPTIONAL, off unless you set it: keep only trajectories that stay inside
+# a box, dataset = [lon_min, lat_min, lon_max, lat_max]. Same thing from the
+# command line: --bbox geolife 115.9,39.6,116.9,40.3  (or --bbox geolife off)
+# e.g. GeoLife contains trips far from Beijing; this keeps the city itself:
+# geolife = [115.9, 39.6, 116.9, 40.3]
+# tdrive = [115.9, 39.6, 116.9, 40.3]
+
 [common]
 # applied to every command that has the option
 # device = "cuda"

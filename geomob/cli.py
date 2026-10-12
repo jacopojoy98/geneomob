@@ -418,12 +418,19 @@ def main(argv=None):
         sp.add_argument("--config", default=None, metavar="FILE.toml",
                         help="TOML config with hyperparameters; flags given on "
                              "the command line override it")
+        sp.add_argument("--bbox", nargs=2, action="append", default=None,
+                        metavar=("DATASET", "BOX"),
+                        help="keep only that dataset's trajectories that stay inside "
+                             "BOX = lon_min,lat_min,lon_max,lat_max (e.g. --bbox "
+                             "geolife 115.9,39.6,116.9,40.3); repeatable; 'off' drops "
+                             "a box set in the config's [filters]. Default: no filter")
 
     # ---- config file: architecture, paths, then this command's defaults ----
     from . import config as _cfg
     argv = list(sys.argv[1:] if argv is None else argv)
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--config", default=None)
+    pre.add_argument("--bbox", nargs=2, action="append", default=None)
     known, _ = pre.parse_known_args(argv)
     cfg, cfg_text = {}, None
     cmd = next((a for a in argv if a in sub.choices), None)
@@ -435,6 +442,8 @@ def main(argv=None):
             sub.choices[cmd].set_defaults(
                 **_cfg.command_defaults(cfg, sub.choices, cmd))
 
+    if cmd != "config":
+        _cfg.apply_filters(cfg, known.bbox)
     _cfg.VALID_KEYS.update({n: set(_cfg._actions(sp)) for n, sp in sub.choices.items()})
     args = p.parse_args(argv)
     args._cfg_overrides = {

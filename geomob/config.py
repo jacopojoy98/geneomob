@@ -9,6 +9,8 @@ Precedence, lowest to highest:
 
 Sections
     [paths]        dataset locations (name = "path"); beat DATA_<NAME> exports
+    [filters]      keep only trajectories inside a box per dataset:
+                   name = [lon_min, lat_min, lon_max, lat_max]
     [common]       keys applied to every command that has them (device, seeds..)
     [model]        sequence-model architecture shared by every experiment
     [encoders]     GPE / GEO / time / speed encoder hyperparameters used by the
@@ -80,8 +82,8 @@ _HP_DEFAULTS = {
 }
 HP = copy.deepcopy(_HP_DEFAULTS)
 
-SPECIAL_SECTIONS = ("paths", "common", "model", "encoders", "search_space")
-SKIP_DESTS = {"help", "config"}
+SPECIAL_SECTIONS = ("paths", "common", "model", "encoders", "search_space", "filters")
+SKIP_DESTS = {"help", "config", "bbox"}
 
 # the record of the current invocation, attached to every saved result
 RUN: dict = {}
@@ -159,6 +161,38 @@ def apply_architecture(cfg: dict):
             if isinstance(ref, float) and isinstance(v, int):
                 v = float(v)
             HP[sec][k] = v
+
+
+def _check_box(k, v, where):
+    from .data import DATASETS
+    if k not in DATASETS:
+        _unknown("dataset", k, DATASETS, where)
+    if not (isinstance(v, (list, tuple)) and len(v) == 4 and v[0] < v[2] and v[1] < v[3]):
+        raise SystemExit(f"{where} {k} must be [lon_min, lat_min, lon_max, lat_max] "
+                         f"with min < max, got {v!r}")
+    return tuple(float(x) for x in v)
+
+
+def apply_filters(cfg: dict, cli=None):
+    """Optional bounding-box filters, off unless asked for.
+
+    From the config file:   [filters] geolife = [lon_min, lat_min, lon_max, lat_max]
+    From the command line:  --bbox geolife 115.9,39.6,116.9,40.3   (beats the file)
+                            --bbox geolife off                     (drops the file's)
+    """
+    from .data import BBOX_FILTERS
+    BBOX_FILTERS.clear()
+    for k, v in (cfg or {}).get("filters", {}).items():
+        BBOX_FILTERS[k] = _check_box(k, v, "config: [filters]")
+    for k, v in (cli or []):
+        if str(v).lower() in ("off", "none", "no"):
+            BBOX_FILTERS.pop(k, None)
+            continue
+        try:
+            box = [float(x) for x in str(v).split(",")]
+        except ValueError:
+            raise SystemExit(f"--bbox {k} {v}: expected lon_min,lat_min,lon_max,lat_max or off")
+        BBOX_FILTERS[k] = _check_box(k, box, "--bbox")
 
 
 def apply_paths(cfg: dict):
@@ -274,6 +308,9 @@ def start_run(cmd: str, args, config_path=None, config_text=None, argv=None):
                        if os.environ.get(f"DATA_{n.upper()}")},
         "environment": _versions(),
     })
+    from .data import BBOX_FILTERS
+    if BBOX_FILTERS:
+        RUN["filters"] = {k: list(v) for k, v in BBOX_FILTERS.items()}
     return RUN
 
 
@@ -337,6 +374,9 @@ def to_toml(cmd, options, paths, hp_, header=""):
     parts = ["\n".join(head)]
     if paths:
         parts.append(_section("paths", paths))
+    from .data import BBOX_FILTERS
+    if BBOX_FILTERS:
+        parts.append(_section("filters", {k: list(v) for k, v in BBOX_FILTERS.items()}))
     valid = VALID_KEYS.get(cmd)
     opts = {k: v for k, v in options.items() if k != "paths"}
     good = {k: v for k, v in opts.items() if valid is None or k in valid}
@@ -400,7 +440,14 @@ def template(subparsers: dict, commands=None) -> str:
            "[paths]",
            "# dataset locations; these beat exported DATA_<NAME> variables"]
     out += [f'# {n} = "/path/to/{n}"' for n in LOADERS]
-    out += ["", "[common]",
+    out += ["", "[filters]",
+            "# OPTIONAL, off unless you set it: keep only trajectories that stay inside",
+            "# a box, dataset = [lon_min, lat_min, lon_max, lat_max]. Same thing from the",
+            "# command line: --bbox geolife 115.9,39.6,116.9,40.3  (or --bbox geolife off)",
+            "# e.g. GeoLife contains trips far from Beijing; this keeps the city itself:",
+            "# geolife = [115.9, 39.6, 116.9, 40.3]",
+            "# tdrive = [115.9, 39.6, 116.9, 40.3]",
+            "", "[common]",
             "# applied to every command that has the option",
             '# device = "cuda"', "# seeds = [0, 1, 2]", "",
             _section("model", HP["model"], MODEL_HELP),
