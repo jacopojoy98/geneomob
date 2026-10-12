@@ -71,18 +71,16 @@ class CanonicalFrame:
     ambiguity is resolved from the data alone. Fitted without labels."""
 
     def fit(self, trajs):
-        ll = np.concatenate([t.lonlat for t in trajs])
-        self.ref = ll.mean(0)
-        xy = lonlat_to_enu(ll, self.ref)[0]
-        xy = xy - xy.mean(0)
-        w, v = np.linalg.eigh(np.cov(xy.T))
-        ax = v[:, np.argmax(w)]
-        ang = float(np.arctan2(ax[1], ax[0]))
-        if np.mean((xy @ ax) ** 3) < 0:
-            ang += np.pi
-        # second axis: right-handed, also pointed at its heavier tail is not
-        # possible without a reflection, so only the first axis is signed
-        self.angle = ang
+        # origin: the configured rule, except that a fixed city anchor makes
+        # no sense for a city that has been moved, so "anchor" means median
+        from ..config import HP
+        from ..frame import fit_orientation, fit_origin
+        rule = HP["encoders"].get("frame_origin", "mean")
+        self.ref = fit_origin(trajs, "median" if rule == "anchor" else rule)
+        # orientation: street grid (90-degree ambiguity resolved by the
+        # principal axis) if configured, otherwise principal axes
+        orient = HP["encoders"].get("frame_orientation", "none")
+        self.angle = fit_orientation(trajs, self.ref, "grid" if orient == "grid" else "pca")
         return self
 
     def to_pseudo_lonlat(self, lonlat):
@@ -109,6 +107,9 @@ class FramedTokenizer:
         self.frame.fit(trajs)
         if hasattr(self.inner.loc, "ref_deg"):
             self.inner.loc.ref_deg = np.zeros(2)
+            self.inner.loc.frame_angle = 0.0    # the canonical frame is applied here
+        if hasattr(self.inner, "set_precision_ref"):
+            self.inner.set_precision_ref(np.zeros(2))
         if hasattr(self.inner, "ref_rad"):      # learnable GPE: precision anchor
             self.inner.fit([Traj(self.frame.to_pseudo_lonlat(t.lonlat), t.t)
                             for t in trajs], force=True)
@@ -294,8 +295,9 @@ def run_task(task, kind, sweeps, seed, channels="spatial"):
         if row == "GEO (fixed frame)":
             return task.score(models["geo"], toks["geo"], moved)
         if row == "GEO (origin re-fit)":
+            from ..frame import fit_frame       # the configured frame rule
             t2 = copy.deepcopy(toks["geo"])
-            t2.loc.ref_deg = np.concatenate([t.lonlat for t in moved]).mean(0)
+            fit_frame(t2.loc, moved, force=True)
             return task.score(models["geo"], t2, moved)
         key = "geo_canon" if row.startswith("GEO") else "gpe_canon"
         return task.score(models[key], copy.deepcopy(toks[key]).refit(moved), moved)

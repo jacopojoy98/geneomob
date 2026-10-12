@@ -67,6 +67,11 @@ _HP_DEFAULTS = {
         "speed_scales": 6,              # SpeedGEO ladder
         "speed_lo": 0.05,
         "speed_hi": 60.0,
+        "frame_origin": "mean",         # mean | median | anchor
+        "frame_orientation": "none",    # none | grid | pca
+        "frame_anchors": {},            # extra anchors: {name = [lon, lat]}
+        "frame_anchor_radius_km": 75.0,
+        "geo_coords": "metric",         # metric (local frame) | lonlat
         "learn_lambdas": "none",        # none | loc | disp | both
         "learn_lambda_min_m": 0.0,      # scales starting below this stay fixed
         "lambda_lr_scale": 1.0,         # speed at which log-wavelengths move
@@ -131,11 +136,25 @@ def _norm(d: dict) -> dict:
     return {k.replace("-", "_"): v for k, v in d.items()}
 
 
+CHOICES = {"frame_origin": ("mean", "median", "anchor"),
+           "frame_orientation": ("none", "grid", "pca"),
+           "geo_coords": ("metric", "lonlat"),
+           "learn_lambdas": ("none", "loc", "disp", "both")}
+
+
 def apply_architecture(cfg: dict):
     for sec in ("model", "encoders"):
         for k, v in _norm(cfg.get(sec, {})).items():
             if k not in HP[sec]:
                 _unknown("key", k, HP[sec], f"[{sec}]")
+            if k in CHOICES and v not in CHOICES[k]:
+                raise SystemExit(f"config: [{sec}] {k} = {v!r}; choose one of "
+                                 f"{', '.join(CHOICES[k])}")
+            if k == "frame_anchors":
+                if not isinstance(v, dict) or not all(
+                        isinstance(x, list) and len(x) == 2 for x in v.values()):
+                    raise SystemExit("config: [encoders] frame_anchors must look like "
+                                     "{name = [lon, lat], ...}")
             ref = _HP_DEFAULTS[sec][k]
             if isinstance(ref, float) and isinstance(v, int):
                 v = float(v)
@@ -288,6 +307,8 @@ def _json_default(o):
 # writing TOML (tiny subset: scalars, strings, flat lists)
 # --------------------------------------------------------------------------
 def _tv(v):
+    if isinstance(v, dict):
+        return "{" + ", ".join(f"{k} = {_tv(x)}" for k, x in v.items()) + "}"
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, (int, float)):
@@ -346,6 +367,11 @@ ENCODER_HELP = {
     "speed_scales": "SpeedGEO scales (dt and speed)",
     "speed_lo": "SpeedGEO shortest wavelength (log1p units)",
     "speed_hi": "SpeedGEO longest wavelength (log1p units)",
+    "frame_origin": "origin of GEO's local frame: mean (centre of mass of the training points; moves with the sample), median (geometric median: robust to far-away trips, and it moves with the city when the city is shifted or turned), anchor (a fixed city centre: identical for training, validation, test and every run; falls back to the median when no anchor is near)",
+    "frame_orientation": "x-axis of the frame: none (east), grid (dominant street direction, from step headings), pca (longest spread of the points)",
+    "frame_anchors": "extra city centres for frame_origin = anchor, e.g. {lisbon = [-9.1393, 38.7223]}; built in: beijing, porto, rome, san_francisco, singapore, new_york",
+    "frame_anchor_radius_km": "an anchor is used only if the data's median lies within this distance of it",
+    "geo_coords": "coordinates of GEO's toroidal (location) part: metric (metres in the local frame) or lonlat (raw longitude/latitude, like GPE, with GEO's wavelengths)",
     "learn_lambdas": "GEO wavelengths trained with the model instead of fixed: none, loc (location), disp (radial), both. They start on the lam_min..lam_max ladder; equivariance is kept for any value",
     "learn_lambda_min_m": "scales whose initial wavelength is below this (metres) stay fixed: for short wavelengths the gradient is mostly noise. 0 = learn all",
     "lambda_lr_scale": "how fast the log-wavelengths move relative to the other weights (1 = same step size)",

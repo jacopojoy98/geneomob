@@ -23,6 +23,7 @@ REQUIRED = {
                     "DATASETS", "LOADERS"],
     "geomob.csvdata": ["load_csv", "inspect_csv"],
     "geomob.config": ["HP", "load", "save_results", "template"],
+    "geomob.frame": ["fit_frame", "fit_origin", "metric_xy", "CITY_ANCHORS"],
     "geomob.equivariance": [],
     "geomob.metrics": ["similarity_metrics"],
     "geomob.codebook": ["EquivariantTorusCodebook"],
