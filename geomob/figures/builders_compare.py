@@ -636,23 +636,55 @@ def tex_paired(tests):
 # ==========================================================================
 # 4. relocated-city test
 # ==========================================================================
-RELOC_LABEL = {   # what each row is, in words, for the legend
+# Rows of the main figure: colour = encoding (GPE orange, GEO blue), line =
+# frame (dotted, hollow = left where it was trained; solid, filled = re-fitted
+# on the moved city without labels). Built by _main_rows from what the
+# results file contains.
+_ORANGE, _BLUE = "#D55E00", "#0072B2"
+MAIN_STYLE = {
+    "gpe_fixed": dict(color=_ORANGE, ls=":", marker="o", mfc="white", lw=1.3),
+    "gpe_refit": dict(color=_ORANGE, ls="-", marker="o", lw=1.6),
+    "geo_fixed": dict(color=_BLUE, ls=":", marker="s", mfc="white", lw=1.3),
+    "geo_refit": dict(color=_BLUE, ls="-", marker="s", lw=1.9),
+}
+MAIN_LABEL = {
+    "gpe_fixed": "GPE, as trained (absolute lon/lat)",
+    "gpe_refit": "GPE, in the re-fitted frame (diagnostic)",
+    "geo_fixed": "GEO, frame left at the training city",
+    "geo_refit": "GEO, frame re-fitted on the moved city",
+}
+
+# Every row, for the appendix figure
+RELOC_LABEL = {
     "GPE": "GPE, as trained",
     "GPE + space shift": "GPE + bounding-box remap (ablation)",
     "GEO (fixed frame)": "GEO, frame left at the training city",
-    "GEO (origin re-fit)": "GEO, frame re-fit on the new city (no labels)",
-    "GEO (canonical frame)": "GEO, origin + axes re-fit (no labels)",
-    "GPE in canonical frame": "GPE fed GEO's re-fit frame (diagnostic)",
+    "GEO (origin re-fit)": "GEO, origin re-fitted (axes kept)",
+    "GEO (canonical frame)": "GEO, origin + axes re-fitted",
+    "GPE in canonical frame": "GPE in GEO's re-fitted frame (diagnostic)",
 }
+RELOC_STYLE = {
+    "GPE":                    dict(color=_ORANGE, ls=":", marker="o", mfc="white", lw=1.3),
+    "GPE + space shift":      dict(color="#E69F00", ls="--", marker="P", lw=1.1),
+    "GEO (fixed frame)":      dict(color=_BLUE, ls=":", marker="s", mfc="white", lw=1.3),
+    "GEO (origin re-fit)":    dict(color="#56B4E9", ls="--", marker="D", lw=1.1),
+    "GEO (canonical frame)":  dict(color=_BLUE, ls="-", marker="s", lw=1.9),
+    "GPE in canonical frame": dict(color=_ORANGE, ls="-", marker="o", lw=1.6),
+}
+TASK_NAME = {"similarity": "trajectory similarity (control)",
+             "eta": "travel-time estimation",
+             "mode": "transport-mode detection"}
 
-RELOC_STYLE = {   # colour = family, line/marker = variant
-    "GPE":                    dict(color="#D55E00", ls="-", marker="o", lw=1.4),
-    "GPE + space shift":      dict(color="#D55E00", ls="--", marker="s", lw=1.1),
-    "GEO (fixed frame)":      dict(color="#0072B2", ls=":", marker="^", lw=1.1),
-    "GEO (origin re-fit)":    dict(color="#0072B2", ls="--", marker="D", lw=1.1),
-    "GEO (canonical frame)":  dict(color="#0072B2", ls="-", marker="o", lw=1.8),
-    "GPE in canonical frame": dict(color="0.45", ls="-.", marker="v", lw=1.0),
-}
+
+def _main_rows(res):
+    """[(key, results row)] for the four lines of the main figure, using the
+    best re-fitted GEO row the file has."""
+    have = set(res["rows"])
+    pick = [("gpe_fixed", "GPE"), ("geo_fixed", "GEO (fixed frame)"),
+            ("geo_refit", next((r for r in ("GEO (canonical frame)", "GEO (origin re-fit)")
+                                if r in have), None)),
+            ("gpe_refit", "GPE in canonical frame")]
+    return [(k, r) for k, r in pick if r in have]
 
 
 def _reloc_panels(res):
@@ -665,52 +697,214 @@ def _reloc_panels(res):
     return out
 
 
+def _n_seeds(res):
+    return len(res.get("seeds") or [0])
+
+
+def _plot_sweeps(res, tname, panels, lines, title):
+    """One row of panels per dataset x model, one column per sweep. `lines` is
+    [(results row, label, style)]. Each panel starts with the value with the
+    city in place (left of the thin rule), then the sweep; shaded bands are
+    +-1 std over seeds."""
+    sweeps = list(panels[0][2]["sweeps"])
+    fig, axes = plt.subplots(len(panels), len(sweeps), squeeze=False,
+                             figsize=(WIDTH_2COL, 1.75 * len(panels) + 1.25),
+                             sharey="row")
+    for r, (name, kind, d) in enumerate(panels):
+        metric, hi = d["metric"], d["higher_is_better"]
+        for c, sweep in enumerate(sweeps):
+            ax, sw = axes[r][c], d["sweeps"][sweep]
+            x = np.arange(len(sw["values"])) + 1.0
+            for j, (row, label, st) in enumerate(lines):
+                cells = sw["rows"].get(row)
+                if not cells:
+                    continue
+                st = dict(st)
+                mfc = st.pop("mfc", st["color"])
+                y = np.array([cell[metric] for cell in cells])
+                ax.plot(x, y, ms=3.6, label=label, mfc=mfc, mec=st["color"],
+                        mew=0.9, zorder=3, **st)
+                if metric + "_std" in cells[0]:
+                    e = np.array([cell[metric + "_std"] for cell in cells])
+                    ax.fill_between(x, y - e, y + e, color=st["color"], alpha=0.13,
+                                    lw=0, zorder=1)
+                ip = d.get("in_place", {}).get(row)
+                if ip is not None:          # the city where it is
+                    dx = (j - (len(lines) - 1) / 2) * 0.12
+                    ax.errorbar([dx], [ip[metric]], yerr=[ip.get(metric + "_std", 0.0)],
+                                fmt=st["marker"], ms=4.2, color=st["color"], mfc=mfc,
+                                mec=st["color"], mew=0.9, capsize=1.5, elinewidth=0.8,
+                                zorder=4)
+            ax.axvline(0.5, color="0.6", lw=0.6)
+            ax.set_xlim(-0.6, len(x) + 0.5)
+            ax.set_xticks(np.r_[0.0, x])
+            ax.set_xticklabels(["in\nplace"] + [f"{v:g}" for v in sw["values"]],
+                               fontsize=6)
+            ax.grid(axis="y", color="0.9", lw=0.5)
+            ax.set_axisbelow(True)
+            if sweep == "latitude":
+                ax.set_xlabel(f"latitude of the city centre ({res['units'][sweep]}; "
+                              f"real: {d['centre_lonlat'][1]:.0f})", fontsize=6)
+            else:
+                ax.set_xlabel(f"{sweep} ({res['units'][sweep]})", fontsize=6)
+            if r == 0:
+                ax.set_title(sweep, fontsize=7.5)
+            if c == 0:
+                arrow = r"$\uparrow$" if hi else r"$\downarrow$"
+                ax.set_ylabel(f"{name} / {kind}\n{metric}{UNITS.get(metric, '')} {arrow}",
+                              fontsize=6.5)
+    h_, l_ = axes[0][0].get_legend_handles_labels()
+    ns = _n_seeds(res)
+    fig.suptitle(f"{title}" + (f"  ({ns} seeds, band $\\pm$1 std)" if ns > 1 else ""),
+                 fontsize=8.5)
+    H = fig.get_figheight()
+    fig.texts[-1].set_y(1 - 0.08 / H)
+    fig.texts[-1].set_va("top")
+    fig.tight_layout()
+    n_leg_rows = int(np.ceil(len(h_) / 2))
+    fig.subplots_adjust(top=1 - (0.55 + 0.16 * n_leg_rows) / H)
+    fig.legend(h_, l_, loc="upper center", ncol=2, fontsize=6.4, frameon=False,
+               bbox_to_anchor=(0.5, 1 - 0.30 / H), handlelength=3.4,
+               columnspacing=2.5)
+    return fig
+
+
 def fig_relocate(res):
+    """Main figure per task: four lines (encoding x frame); the appendix
+    variant fig_relocate_all_<task> keeps every row."""
     figs = []
+    main = _main_rows(res)
+    # legend order: with ncol=2 matplotlib fills column by column, so this
+    # gives rows = frame (fixed / re-fitted), columns = encoding (GPE / GEO)
+    order = [k for k in ("gpe_fixed", "gpe_refit", "geo_fixed", "geo_refit")
+             if k in dict(main)]
+    lines = [(dict(main)[k], MAIN_LABEL[k], MAIN_STYLE[k]) for k in order]
+    every = [(r, RELOC_LABEL.get(r, r),
+              RELOC_STYLE.get(r, dict(color="black", ls="-", marker="o", lw=1)))
+             for r in res["rows"]]
     for tname, panels in _reloc_panels(res).items():
-        sweeps = list(panels[0][2]["sweeps"])
-        fig, axes = plt.subplots(len(panels), len(sweeps), squeeze=False,
-                                 figsize=(WIDTH_2COL, 1.9 * len(panels) + 1.2),
-                                 sharey="row")
-        for r, (name, kind, d) in enumerate(panels):
-            metric, hi = d["metric"], d["higher_is_better"]
-            for c, sweep in enumerate(sweeps):
-                ax, sw = axes[r][c], d["sweeps"][sweep]
-                x = np.arange(len(sw["values"]))
-                for row in res["rows"]:
-                    y = [cell[metric] for cell in sw["rows"][row]]
-                    st = RELOC_STYLE.get(row, dict(color="black", ls="-", marker="o", lw=1))
-                    ax.plot(x, y, ms=3.2, label=RELOC_LABEL.get(row, row),
-                            markeredgecolor="white", markeredgewidth=0.4, **st)
-                ax.set_xticks(x)
-                ax.set_xticklabels([f"{v:g}" for v in sw["values"]], fontsize=6)
-                if sweep == "latitude":     # where the city really is
-                    ax.set_xlabel(f"latitude of the city centre ({res['units'][sweep]}; "
-                                  f"real: {d['centre_lonlat'][1]:.0f})", fontsize=6)
-                else:
-                    ax.set_xlabel(f"{sweep} ({res['units'][sweep]})", fontsize=6)
-                if c == 0:
-                    arrow = r"$\uparrow$" if hi else r"$\downarrow$"
-                    ax.set_ylabel(f"{name} / {kind}\n{metric}{UNITS.get(metric, '')} {arrow}",
-                                  fontsize=6.5)
-        h_, l_ = axes[0][0].get_legend_handles_labels()
-        title = {"similarity": "trajectory similarity (control)",
-                 "eta": "travel-time estimation",
-                 "mode": "transport-mode detection"}.get(tname, tname)
-        fig.suptitle(f"Relocated-city test, {title}: one training, the test city "
-                     "moved as a rigid body", fontsize=8.5)
-        # fixed space in INCHES at the top (title, then a two-row legend), so
-        # the layout holds whatever the number of panel rows
-        H = fig.get_figheight()
-        fig.texts[-1].set_y(1 - 0.08 / H)          # the suptitle
-        fig.texts[-1].set_va("top")
-        fig.tight_layout()
-        fig.subplots_adjust(top=1 - 0.95 / H)
-        fig.legend(h_, l_, loc="upper center", ncol=3, fontsize=6.2, frameon=False,
-                   bbox_to_anchor=(0.5, 1 - 0.33 / H), handlelength=3.2,
-                   columnspacing=1.6)
-        figs.append((f"fig_relocate_{tname}", fig))
+        t = TASK_NAME.get(tname, tname)
+        figs.append((f"fig_relocate_{tname}", _plot_sweeps(
+            res, tname, panels, lines,
+            f"Relocated-city test, {t}")))
+        figs.append((f"fig_relocate_all_{tname}", _plot_sweeps(
+            res, tname, panels, every,
+            f"Relocated-city test, {t}, every variant")))
+    s = fig_relocate_summary(res)
+    if s:
+        figs.append(s)
     return figs
+
+
+def _worst(d, row, metric, hi):
+    """Worst mean value of `row` over every move of every sweep, and where."""
+    best = None
+    for sweep, sw in d["sweeps"].items():
+        for v, cell in zip(sw["values"], sw["rows"].get(row) or []):
+            val = cell[metric]
+            if best is None or (val < best[0] if hi else val > best[0]):
+                best = (val, sweep, v)
+    return best
+
+
+def _change_pct(in_place, worst, hi):
+    """Signed relative change, negative = worse."""
+    if not in_place:
+        return float("nan")
+    ch = (worst - in_place) / abs(in_place) * 100.0
+    return ch if hi else -ch
+
+
+def _pct(ch):
+    return "0%" if abs(ch) < 0.5 else f"{ch:+.0f}%"
+
+
+def fig_relocate_summary(res):
+    """Dumbbells: one row of panels per dataset / model, one column per task;
+    in each panel every method's score with the city in place (filled) and
+    its worst score over every move (hollow ring), with the relative change.
+    When the two coincide the marker is a ring with a dot: nothing was lost."""
+    main = _main_rows(res)
+    if not main:
+        return None
+    order = [k for k in ("geo_refit", "geo_fixed", "gpe_refit", "gpe_fixed")
+             if k in dict(main)]
+    short = {"gpe_fixed": "GPE, as trained", "gpe_refit": "GPE, re-fitted frame",
+             "geo_fixed": "GEO, fixed frame", "geo_refit": "GEO, re-fitted frame"}
+    panels = _reloc_panels(res)
+    tasks = [t for t in ("eta", "mode", "similarity") if t in panels]
+    tasks += [t for t in panels if t not in tasks]
+    rows = sorted({(n, k) for t in tasks for n, k, _ in panels[t]})
+    fig, axes = plt.subplots(len(rows), len(tasks), squeeze=False,
+                             figsize=(WIDTH_2COL, 0.82 * len(rows) + 1.0))
+    metric_of = {}
+    for c, tname in enumerate(tasks):
+        got = {(n, k): d for n, k, d in panels[tname]}
+        for r, key in enumerate(rows):
+            ax = axes[r][c]
+            d = got.get(key)
+            if d is None:
+                ax.axis("off")
+                continue
+            m, hi = d["metric"], d["higher_is_better"]
+            metric_of[tname] = (m, hi)
+            for i, k in enumerate(order):
+                row = dict(main)[k]
+                st = MAIN_STYLE[k]
+                ip = d["in_place"].get(row, {}).get(m)
+                w = _worst(d, row, m, hi)
+                if ip is None or w is None:
+                    continue
+                y = len(order) - 1 - i
+                ax.plot([ip, w[0]], [y, y], color=st["color"], lw=1.2, ls=":",
+                        zorder=2)
+                ax.plot([w[0]], [y], marker=st["marker"], ms=5.6, mfc="white",
+                        mec=st["color"], mew=1.0, zorder=3, ls="none")
+                ax.plot([ip], [y], marker=st["marker"], ms=3.4, color=st["color"],
+                        zorder=4, ls="none")
+                ch = _change_pct(ip, w[0], hi)
+                ax.annotate(_pct(ch), xy=(1.02, y), xycoords=("axes fraction", "data"),
+                            fontsize=5.8, va="center",
+                            color="#B00000" if ch < -5 else "0.4")
+            ax.set_ylim(-0.6, len(order) - 0.4)
+            ax.set_yticks(range(len(order)))
+            ax.set_yticklabels([short[k] for k in order[::-1]] if c == 0 else [],
+                               fontsize=6)
+            ax.tick_params(axis="x", labelsize=5.8, pad=1.5)
+            ax.grid(axis="x", color="0.9", lw=0.5)
+            ax.set_axisbelow(True)
+            ax.margins(x=0.15)
+            if c == 0:
+                ax.set_title(f"{key[0]} / {key[1]}", loc="left", fontsize=6.8,
+                             fontweight="bold", x=-0.62, pad=2)
+    for c, tname in enumerate(tasks):       # metric under the bottom panel
+        if tname in metric_of:
+            m, hi = metric_of[tname]
+            axes[-1][c].set_xlabel(f"{m}{UNITS.get(m, '')}, "
+                                   f"{'higher' if hi else 'lower'} is better",
+                                   fontsize=6.2)
+    from matplotlib.lines import Line2D
+    h = [Line2D([], [], marker="o", color="0.3", ls="none", ms=3.4,
+                label="city in place"),
+         Line2D([], [], marker="o", mfc="white", mec="0.3", ls="none", ms=5.6,
+                label="worst over every move"),
+         Line2D([], [], marker="o", mfc="0.3", mec="0.3", ls="none", ms=0,
+                label="% = change, negative = worse")]
+    ns = _n_seeds(res)
+    fig.suptitle("Relocated-city test, summary" + (f" (mean of {ns} seeds)" if ns > 1 else ""),
+                 fontsize=8.5)
+    H = fig.get_figheight()
+    fig.texts[-1].set_y(1 - 0.06 / H)
+    fig.texts[-1].set_va("top")
+    fig.tight_layout(w_pad=2.6, h_pad=0.9)
+    fig.subplots_adjust(top=1 - 0.78 / H, left=0.17, right=0.95)
+    fig.legend(handles=h, loc="upper center", ncol=3, fontsize=6.2, frameon=False,
+               bbox_to_anchor=(0.5, 1 - 0.22 / H), handletextpad=0.3)
+    for c, tname in enumerate(tasks):       # task names over the columns
+        bb = axes[0][c].get_position()
+        fig.text((bb.x0 + bb.x1) / 2, bb.y1 + 0.24 / H, TASK_NAME.get(tname, tname),
+                 ha="center", va="bottom", fontsize=7.5)
+    return ("fig_relocate_summary", fig)
 
 
 def tex_relocate(res):
@@ -721,19 +915,31 @@ def tex_relocate(res):
         lines = [r"\begin{table}[t]", r"\centering",
                  rf"\caption{{Relocated-city test, {_tx(tname)} ({_tx(metric)}, "
                  rf"{'higher' if hi else 'lower'} is better): value with the test "
-                 r"city in place, and the worst value along each sweep. All rows "
-                 r"are zero-shot.}",
-                 r"\begin{tabular}{llrrrr}", r"\toprule",
-                 r"Dataset & Method & In place & Latitude & Rotation & Translation \\",
+                 r"city in place, the worst value along each sweep, and the "
+                 r"change from in place to the worst move overall (negative = "
+                 r"worse). All rows are zero-shot; the four main rows come first.}",
+                 r"\begin{tabular}{llrrrrr}", r"\toprule",
+                 r"Dataset & Method & In place & Latitude & Rotation & Translation"
+                 r" & $\Delta$ (\%) \\",
                  r"\midrule"]
+        main = [r for _, r in _main_rows(res)]
+        rows = main + [r for r in res["rows"] if r not in main]
         for name, kind, d in panels:
-            for i, row in enumerate(res["rows"]):
+            for i, row in enumerate(rows):
+                if row not in d["in_place"]:
+                    continue
                 cells = [f"{pick(c[metric] for c in d['sweeps'][sw]['rows'][row]):.3f}"
                          if sw in d["sweeps"] else "--"
                          for sw in ("latitude", "rotation", "translation")]
+                ip = d["in_place"][row][metric]
+                w = _worst(d, row, metric, hi)
+                ch = f"{_change_pct(ip, w[0], hi):+.1f}" if w else "--"
+                ch = "0.0" if ch in ("+0.0", "-0.0") else ch
+                if i == len(main) and main:
+                    lines.append(r"\cmidrule(l){2-7}")
                 lines.append((f"{_tx(name)} ({kind})" if i == 0 else "")
-                             + f" & {_tx(row)} & {d['in_place'][row][metric]:.3f} & "
-                             + " & ".join(cells) + r" \\")
+                             + f" & {_tx(RELOC_LABEL.get(row, row))} & {ip:.3f} & "
+                             + " & ".join(cells) + f" & {ch}" + r" \\")
             lines.append(r"\midrule")
         lines[-1] = r"\bottomrule"
         lines += [r"\end{tabular}", r"\end{table}", ""]

@@ -57,6 +57,8 @@ python -m geomob.cli gpe_suite --config geomob.toml --epochs 2   # a flag beats 
 lists every option of every command commented out at its default, plus:
 
 * `[paths]` dataset locations (these beat exported `DATA_<NAME>` variables);
+* `[filters]` optional: keep only trajectories inside a lon/lat box, per
+  dataset (e.g. to drop GeoLife's trips outside Beijing); also `--bbox`;
 * `[common]` options applied to every command that has them (`device`, `seeds`);
 * `[model]` sequence-model architecture (`hidden`, `layers`, `heads`, `dropout`),
   used by every experiment;
@@ -164,18 +166,39 @@ Each model is trained once where the city is. The test set is then moved as
 one rigid body: to other latitudes, turned about its centre, or shifted east.
 Nothing on the ground changes, only the coordinates. Tasks: `similarity`
 (control), `eta` and `mode` (supervised; the answer cannot depend on where the
-city is). Rows, all zero-shot: GPE, GPE + the GPE paper's space shift, GEO
-with its frame left at the training city, GEO with the origin re-fit, GEO in a
-canonical frame (centroid + principal axes, re-fit without labels), and GPE
-fed the same canonical coordinates as a diagnostic. Outputs
-`fig_relocate_<task>` and a table. `run_all` includes it as the `relocate`
-step. `--channels ts` adds time and speed to both methods.
+city is). The frame is fitted on the whole city (train + test, no labels) and
+re-fitted on the whole moved city; scores are on the test part. With
+`seeds = [0, 1, 2]` every point is a mean over seeds and the spread is kept.
+
+Figures (v0.9.2):
+
+* **`fig_relocate_<task>`** -- the main figure, four lines in a 2 x 2 code.
+  Colour = encoding (GPE orange, GEO blue); line = frame (dotted, hollow
+  markers: coordinates of the training city; solid, filled: frame re-fitted on
+  the moved city without labels). So: GPE as trained, GEO with the frame left
+  behind, GEO re-fitted, and GPE fed GEO's re-fitted frame (the diagnostic that
+  separates frame from encoding). The leftmost point of every panel is the city
+  in place, so each line's own reference is in view; bands are +-1 std over
+  seeds.
+* **`fig_relocate_summary`** -- one dumbbell per method, task and
+  dataset / model: score in place (dot) and worst score over every move
+  (ring), with the % change (red below -5%). A dot inside its ring means
+  nothing was lost. This is the one for the main text; the sweeps can go to
+  the appendix.
+* **`fig_relocate_all_<task>`** -- every row, for the appendix: adds GEO with
+  only the origin re-fitted and GPE with its bounding box remapped onto the
+  moved city (an ablation, not the GPE paper's method).
+* `tables.tex` -- in place, worst per sweep and the overall % change, main rows
+  first.
+
+`run_all` includes it as the `relocate` step. `--channels ts` adds time and
+speed to both methods.
 
 How to read it: a flat line means the method does not care where the city is.
-The canonical-frame rows are flat by construction (the experiment verifies
-it). The grey diagnostic row tells you whether an advantage comes from the
-frame or from the encoding: if it is as good as GEO's canonical row, the frame
-is what matters.
+The re-fitted GEO line is flat by construction (the experiment verifies it).
+The GPE-in-re-fitted-frame line tells you whether an advantage comes from the
+frame or from the encoding: if it is as good as re-fitted GEO, the frame is
+what matters.
 
 `transfer --dst-lat` and `architectures --transfer-lat` previously moved each
 trip separately, stacking them on one point; they now move the city as a whole
@@ -459,6 +482,26 @@ python -m geomob.cli probe --dataset geolife --path /data/Geolife
 
 Pass `max_traj=None` for the whole corpus, or `labelled_only=True` to restrict
 to the 73 labelled users for the travel-mode experiment.
+
+GeoLife also contains trips far from Beijing (other cities, long journeys),
+which pull the data's centre and bounding box away from the city. An optional
+box filter (off by default, any dataset) keeps only trajectories that stay
+inside `[lon_min, lat_min, lon_max, lat_max]`, either in the config file
+
+```toml
+[filters]
+geolife = [115.9, 39.6, 116.9, 40.3]
+```
+
+or on the command line of any command, where it beats the file:
+
+```bash
+python -m geomob.cli run_all --config geomob.toml --bbox geolife 115.9,39.6,116.9,40.3
+python -m geomob.cli run_all --config geomob.toml --bbox geolife off   # ignore [filters]
+```
+
+The loader prints how many were kept, and the box is written into the results'
+`_run` record and the `.config.toml` beside them.
 
 ### If a run is too slow or too small
 
