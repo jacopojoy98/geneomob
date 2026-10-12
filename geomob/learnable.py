@@ -155,8 +155,10 @@ class _Loc:
     """Stand-in for the location channel: carries the frame origin, so
     `tok.loc.ref_deg` works exactly as for the fixed tokenizer."""
 
-    def __init__(self, ref_deg=None):
+    def __init__(self, ref_deg=None, frame_angle=0.0, coords="metric"):
         self.ref_deg = ref_deg
+        self.frame_angle = frame_angle
+        self.coords = coords
 
 
 class LearnableGEO:
@@ -170,7 +172,9 @@ class LearnableGEO:
         self.learn_loc = learn in ("loc", "both")
         self.learn_disp = learn in ("disp", "both") and disp is not None \
             and len(disp.lams) > 0
-        self.loc = _Loc(getattr(loc, "ref_deg", None))
+        self.loc = _Loc(getattr(loc, "ref_deg", None),
+                        coords=getattr(loc, "coords", "metric"))
+        self.prec_ref = None   # lon/lat coords only: fixed precision anchor
         self.min_m, self.kappa, self.name = float(min_m), float(kappa), name
         self.learn = learn
 
@@ -209,15 +213,34 @@ class LearnableGEO:
 
     # -- fitting / encoding ---------------------------------------------------
     def fit(self, trajs, force=False):
-        if self.loc.ref_deg is None or force:
-            self.loc.ref_deg = np.concatenate([t.lonlat for t in trajs]).mean(0)
-        self.fixed_loc.ref_deg = self.loc.ref_deg
+        from .frame import fit_frame
+        fit_frame(self.loc, trajs, force=force)
+        if self.prec_ref is None:
+            self.set_precision_ref(self.loc.ref_deg)
+        self._sync()
         return self
 
-    def __call__(self, traj: Traj) -> np.ndarray:
+    def set_precision_ref(self, ref):
+        """lon/lat coordinates are fed as offsets from this point (added back
+        in float64 by the front end); fixed once the front end exists."""
+        self.prec_ref = np.asarray(ref, dtype=np.float64)
+
+    def _sync(self):
         self.fixed_loc.ref_deg = self.loc.ref_deg       # follow a re-fit frame
-        xy = lonlat_to_enu(traj.lonlat, self.loc.ref_deg)[0]
-        parts = [xy if self.learn_loc else self.fixed_loc.encode(traj.lonlat)]
+        self.fixed_loc.frame_angle = self.loc.frame_angle
+
+    def _loc_raw(self, lonlat):
+        from .frame import lonlat_xy, metric_xy
+        if self.loc.coords == "lonlat":
+            return lonlat_xy(lonlat) - lonlat_xy(self.prec_ref[None, :])
+        return metric_xy(lonlat, self.loc)
+
+    def __call__(self, traj: Traj) -> np.ndarray:
+        from .frame import metric_xy
+        self._sync()
+        xy = metric_xy(traj.lonlat, self.loc)          # displacement / speed
+        parts = [self._loc_raw(traj.lonlat) if self.learn_loc
+                 else self.fixed_loc.encode(traj.lonlat)]
         if self.disp is not None:
             d = np.diff(xy, axis=0)
             if self.learn_disp:
@@ -249,7 +272,11 @@ class LearnableGEO:
             else:
                 plan.append(("pass", c, c + w))
             c += w
-        return FrontEnd(plan)
+        off = (0.0, 0.0)
+        if self.learn_loc and self.loc.coords == "lonlat":
+            from .frame import lonlat_xy
+            off = tuple(lonlat_xy(self.prec_ref[None, :])[0])
+        return FrontEnd(plan, xy_offset=off)
 
 
 class LearnableGPE:

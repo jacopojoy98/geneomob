@@ -217,13 +217,17 @@ class TorusLattice(Encoder):
     name = "TorusLattice"
 
     def __init__(self, lams=(200.0, 1_000.0, 5_000.0, 25_000.0, 125_000.0),
-                 ref_deg=None):
+                 ref_deg=None, coords="metric", frame_angle=0.0):
         self.lams = np.asarray(lams, dtype=np.float64)
         self.ref_deg = ref_deg
+        self.coords = coords            # "metric" (local frame) | "lonlat"
+        self.frame_angle = frame_angle  # orientation of the local frame
         self.dim = 4 * len(self.lams)
 
     def encode(self, lonlat: np.ndarray, t=None) -> np.ndarray:
-        xy, _ = lonlat_to_enu(lonlat, self.ref_deg)
+        from .frame import lonlat_xy, metric_xy
+        xy = (lonlat_xy(lonlat) if getattr(self, "coords", "metric") == "lonlat"
+              else metric_xy(lonlat, self))
         out = []
         for axis in (0, 1):
             a = 2 * np.pi * xy[:, axis][:, None] / self.lams[None, :]

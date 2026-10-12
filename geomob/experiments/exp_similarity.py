@@ -61,7 +61,8 @@ class Tokenizer:
         if ch is None:
             return self
         if hasattr(ch, "ref_deg") and (ch.ref_deg is None or force):
-            ch.ref_deg = ll.mean(0)
+            from ..frame import fit_frame       # origin + orientation, per config
+            fit_frame(ch, trajs, force=True)
         if hasattr(ch, "fit") and (force or not getattr(ch, "_fitted", False)):
             ch.fit(ll)
         return self
@@ -86,12 +87,14 @@ class Tokenizer:
             parts.append(self.loc.encode(traj.lonlat))
         if self.disp is not None:
             from ..geo import lonlat_to_enu
-            xy = lonlat_to_enu(traj.lonlat, getattr(self.loc, "ref_deg", None))[0]
+            from ..frame import metric_xy
+            xy = metric_xy(traj.lonlat, self.loc)
             d = self.disp.encode_disp(np.diff(xy, axis=0))
             parts.append(np.vstack([np.zeros((1, d.shape[1])), d]))
         if self.speed is not None:
             from ..geo import lonlat_to_enu
-            xy = lonlat_to_enu(traj.lonlat, getattr(self.loc, "ref_deg", None))[0]
+            from ..frame import metric_xy
+            xy = metric_xy(traj.lonlat, self.loc)
             sp = self.speed.encode_speed(np.diff(xy, axis=0), np.diff(traj.t))
             parts.append(np.vstack([np.zeros((1, sp.shape[1])), sp]))
         if self.time is not None:

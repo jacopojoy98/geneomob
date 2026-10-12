@@ -636,6 +636,15 @@ def tex_paired(tests):
 # ==========================================================================
 # 4. relocated-city test
 # ==========================================================================
+RELOC_LABEL = {   # what each row is, in words, for the legend
+    "GPE": "GPE, as trained",
+    "GPE + space shift": "GPE + bounding-box remap (ablation)",
+    "GEO (fixed frame)": "GEO, frame left at the training city",
+    "GEO (origin re-fit)": "GEO, frame re-fit on the new city (no labels)",
+    "GEO (canonical frame)": "GEO, origin + axes re-fit (no labels)",
+    "GPE in canonical frame": "GPE fed GEO's re-fit frame (diagnostic)",
+}
+
 RELOC_STYLE = {   # colour = family, line/marker = variant
     "GPE":                    dict(color="#D55E00", ls="-", marker="o", lw=1.4),
     "GPE + space shift":      dict(color="#D55E00", ls="--", marker="s", lw=1.1),
@@ -661,7 +670,7 @@ def fig_relocate(res):
     for tname, panels in _reloc_panels(res).items():
         sweeps = list(panels[0][2]["sweeps"])
         fig, axes = plt.subplots(len(panels), len(sweeps), squeeze=False,
-                                 figsize=(WIDTH_2COL, 1.9 * len(panels) + 0.95),
+                                 figsize=(WIDTH_2COL, 1.9 * len(panels) + 1.2),
                                  sharey="row")
         for r, (name, kind, d) in enumerate(panels):
             metric, hi = d["metric"], d["higher_is_better"]
@@ -671,8 +680,8 @@ def fig_relocate(res):
                 for row in res["rows"]:
                     y = [cell[metric] for cell in sw["rows"][row]]
                     st = RELOC_STYLE.get(row, dict(color="black", ls="-", marker="o", lw=1))
-                    ax.plot(x, y, ms=3.2, label=row, markeredgecolor="white",
-                            markeredgewidth=0.4, **st)
+                    ax.plot(x, y, ms=3.2, label=RELOC_LABEL.get(row, row),
+                            markeredgecolor="white", markeredgewidth=0.4, **st)
                 ax.set_xticks(x)
                 ax.set_xticklabels([f"{v:g}" for v in sw["values"]], fontsize=6)
                 if sweep == "latitude":     # where the city really is
@@ -690,11 +699,16 @@ def fig_relocate(res):
                  "mode": "transport-mode detection"}.get(tname, tname)
         fig.suptitle(f"Relocated-city test, {title}: one training, the test city "
                      "moved as a rigid body", fontsize=8.5)
+        # fixed space in INCHES at the top (title, then a two-row legend), so
+        # the layout holds whatever the number of panel rows
         H = fig.get_figheight()
+        fig.texts[-1].set_y(1 - 0.08 / H)          # the suptitle
+        fig.texts[-1].set_va("top")
         fig.tight_layout()
-        fig.subplots_adjust(top=1 - 0.72 / H)
-        fig.legend(h_, l_, loc="upper center", ncol=3, fontsize=6, frameon=False,
-                   bbox_to_anchor=(0.5, 1 - 0.2 / H))
+        fig.subplots_adjust(top=1 - 0.95 / H)
+        fig.legend(h_, l_, loc="upper center", ncol=3, fontsize=6.2, frameon=False,
+                   bbox_to_anchor=(0.5, 1 - 0.33 / H), handlelength=3.2,
+                   columnspacing=1.6)
         figs.append((f"fig_relocate_{tname}", fig))
     return figs
 

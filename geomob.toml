@@ -17,7 +17,7 @@
 
 [common]
 # applied to every command that has the option
-device = "cuda"
+# device = "cuda"
 # seeds = [0, 1, 2]
 
 [model]
@@ -40,15 +40,15 @@ geo_loc_dims = 0
 # number of torus-lattice scales; 0 = h // 8
 geo_loc_scales = 0
 # finest location wavelength (m)
-geo_loc_lam_min_m = 400.0
+geo_loc_lam_min_m = 25.0
 # coarsest location wavelength (m)
 geo_loc_lam_max_m = 200000.0
 # radial displacement scales; 0 = (h/2 - 4) / 2
 geo_disp_scales = 0
 # finest displacement wavelength (m)
-geo_disp_lam_min_m = 10.0
+geo_disp_lam_min_m = 5.0
 # coarsest displacement wavelength (m)
-geo_disp_lam_max_m = 10000.0
+geo_disp_lam_max_m = 20000.0
 # angular harmonics of the displacement channel (m=4: street-grid order)
 geo_harmonics = [1, 4]
 # cyclic C24 harmonics
@@ -61,6 +61,16 @@ speed_scales = 6
 speed_lo = 0.05
 # SpeedGEO longest wavelength (log1p units)
 speed_hi = 60.0
+# origin of GEO's local frame: mean (centre of mass of the training points; moves with the sample), median (geometric median: robust to far-away trips, and it moves with the city when the city is shifted or turned), anchor (a fixed city centre: identical for training, validation, test and every run; falls back to the median when no anchor is near)
+frame_origin = "mean"
+# x-axis of the frame: none (east), grid (dominant street direction, from step headings), pca (longest spread of the points)
+frame_orientation = "none"
+# extra city centres for frame_origin = anchor, e.g. {lisbon = [-9.1393, 38.7223]}; built in: beijing, porto, rome, san_francisco, singapore, new_york
+frame_anchors = {}
+# an anchor is used only if the data's median lies within this distance of it
+frame_anchor_radius_km = 75.0
+# coordinates of GEO's toroidal (location) part: metric (metres in the local frame) or lonlat (raw longitude/latitude, like GPE, with GEO's wavelengths)
+geo_coords = "metric"
 # GEO wavelengths trained with the model instead of fixed: none, loc (location), disp (radial), both. They start on the lam_min..lam_max ladder; equivariance is kept for any value
 learn_lambdas = "both"
 # scales whose initial wavelength is below this (metres) stay fixed: for short wavelengths the gradient is mostly noise. 1 = learn all
@@ -81,6 +91,7 @@ geo_loc_lam_max_m = [8100000 , 24000000, 40000000]
 lambda_lr_scale = [1,10,50,100]
 geo_harmonics = [ [1, 4,6,8,10, 12]]
 geo_loc_dims = [112]   # location share of h; 124 = no radial part
+
 
 [run_all]
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
@@ -316,7 +327,7 @@ seeds = [0, 1, 2, 3, 4, 5]
 # what a trial is scored on: trajectory similarity (any dataset) or a GeoLife downstream task
 # objective = "tul"
 # similarity: KP@10 (default), MRR, MP, MR, global_MRR; tul: acc@1 (default), acc@5, macro_F1; eta: MAE (default), RMSE, MAPE; mode: macro_F1 (default), acc@1
-# metric = "MR" 
+# metric =
 # grid = every combination; random = n_trials of them
 # method = "grid"
 # number of combinations when method = random
@@ -325,7 +336,7 @@ seeds = [0, 1, 2, 3, 4, 5]
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
 # default: geo for similarity, geo_ts (with time and speed) for the downstream objectives
 # encoder =
-kind = "transformer"
+# kind = "lstm"
 # training epochs per trial (keep small: this is multiplied by the number of trials)
 # epochs = 3
 # bs = 128
@@ -350,8 +361,8 @@ kind = "transformer"
 # similarity is the control; eta and mode are the supervised tasks whose answer does not depend on where the city is (mode needs GeoLife labels)
 # tasks = ["similarity", "eta", "mode"]
 # spatial = GPE vs GEO as in gpe_suite; ts = both with time and speed added (eta and mode only)
-channels = "spatial"
-kinds = ["lstm", "transformer"]
+# channels = "spatial"
+# kinds = ["lstm"]
 # latitudes (degrees north) the test city is moved to
 latitudes = [0.0, 20.0,40.0, 60.0, 70.0]
 # rotations (degrees) of the test city about its centre

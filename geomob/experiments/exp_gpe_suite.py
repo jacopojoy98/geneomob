@@ -136,7 +136,7 @@ def geo_parts(h: int | None = None):
                                lam_min=e["geo_disp_lam_min_m"],
                                lam_max=e["geo_disp_lam_max_m"],
                                harmonics=tuple(e["geo_harmonics"]))
-    return TorusLattice(lams=tuple(lams)), disp
+    return TorusLattice(lams=tuple(lams), coords=e.get("geo_coords", "metric")), disp
 
 
 def gpe_encoder(h: int | None = None):
@@ -291,6 +291,9 @@ def train_and_evaluate(key, src, data, kind, cfg, h=None, seed=0):
            "global": {}, "dim": tok.dim}
     if lw:
         row["learned_wavelengths_m"] = lw
+    if getattr(tok, "loc", None) is not None and hasattr(tok.loc, "ref_deg"):
+        from ..frame import describe
+        row["frame"] = describe(tok.loc)
 
     for dst, (dtrain, dtest) in data.items():
         if dst == src:
@@ -306,7 +309,8 @@ def train_and_evaluate(key, src, data, kind, cfg, h=None, seed=0):
             # no labels, no gradient steps
             t2 = copy.deepcopy(tok)
             if getattr(t2.loc, "ref_deg", None) is not None:
-                t2.loc.ref_deg = np.concatenate([t.lonlat for t in dtest]).mean(0)
+                from ..frame import fit_frame   # same rule as in training
+                fit_frame(t2.loc, dtest, force=True)
             g["zero-shot, frame re-anchored"] = evaluate(
                 model, t2, dtest, cfg["device"])["MRR"]
         row["global"][dst] = g

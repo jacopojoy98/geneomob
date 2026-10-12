@@ -84,6 +84,38 @@ python -m geomob.cli gpe_suite --config results/gpe_suite.config.toml
 Under `run_all`, each step's JSON records the options that step actually ran
 with, and `run_all_status.json` records the `run_all` invocation itself.
 
+## GEO's frame: origin, orientation, and raw longitude/latitude
+
+```toml
+[encoders]
+frame_origin = "anchor"        # mean (default) | median | anchor
+frame_orientation = "grid"     # none (default) | grid | pca
+frame_anchors = {lisbon = [-9.1393, 38.7223]}   # extra anchors, optional
+geo_coords = "metric"          # metric (default) | lonlat
+```
+
+* **Origin.** `mean` is the centre of mass of the training points (the old
+  behaviour; with a few far-away trips it moves ~10 km between two halves of
+  the same data). `median` is the geometric median: it moves <1 km between
+  halves, and it moves with the city when the city is shifted or turned.
+  `anchor` uses a fixed city centre (built in: Beijing, Porto, Rome, San
+  Francisco, Singapore, New York; add your own), so training, validation, test
+  and every run share exactly the same frame. If no anchor lies within
+  `frame_anchor_radius_km` of the data, the median is used and a note printed.
+* **Orientation.** `grid` turns the x-axis to the dominant street direction
+  (from the 4th harmonic of step headings; of the four grid-aligned choices the
+  one nearest the principal axis is taken). `pca` uses the principal axis.
+* **One rule everywhere.** Training, the zero-shot "frame re-anchored" rows,
+  and the relocation test's re-fitted rows all use the same rule. The frame
+  used is saved in each gpe_suite row (`frame`).
+* **`geo_coords = "lonlat"`** feeds GEO's toroidal part raw longitude and
+  latitude (x = R lon, y = R lat, in radians: metres at the equator), i.e.
+  GPE's coordinates with GEO's wavelengths -- the missing cell of the
+  {coordinates} x {scales} comparison. It has no frame to re-fit; the
+  displacement channel stays metric. Works with learned wavelengths too.
+* Defaults reproduce earlier versions exactly. The standalone `anomaly`,
+  `audit`, `tokens` commands keep their own fixed frames.
+
 ## Learned wavelengths
 
 ```toml
