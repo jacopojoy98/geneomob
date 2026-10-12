@@ -62,11 +62,11 @@ speed_lo = 0.05
 # SpeedGEO longest wavelength (log1p units)
 speed_hi = 60.0
 # GEO wavelengths trained with the model instead of fixed: none, loc (location), disp (radial), both. They start on the lam_min..lam_max ladder; equivariance is kept for any value
-learn_lambdas = "none"
-# scales whose initial wavelength is below this (metres) stay fixed: for short wavelengths the gradient is mostly noise. 0 = learn all
-learn_lambda_min_m = 0.0
+learn_lambdas = "both"
+# scales whose initial wavelength is below this (metres) stay fixed: for short wavelengths the gradient is mostly noise. 1 = learn all
+learn_lambda_min_m = 10.0
 # how fast the log-wavelengths move relative to the other weights (1 = same step size)
-lambda_lr_scale = 1.0
+lambda_lr_scale = 10.0
 # let GPE learn its frequencies too (fairness control when GEO learns its wavelengths)
 gpe_learn_freqs = false
 
@@ -75,11 +75,12 @@ gpe_learn_freqs = false
 # key, the list of values to try. Every combination is a trial (grid),
 # or a random subset of them (method = "random" in [search]).
 # geo_loc_lam_min_m = [10, 400.0, 600]
-geo_loc_lam_max_m = [50000.0, 100000.0, 300000.0]
+geo_loc_lam_max_m = [8100000 , 24000000, 40000000]
 # geo_disp_lam_min_m = [1, 10.0, 50.0]
-# geo_disp_lam_max_m = [1000.0]
-geo_harmonics = [[1, 4],[1, 4, 6, 8, 10]]
-geo_loc_dims = [112, 116, 120, 124]   # location share of h; 124 = no radial part
+# geo_disp_lam_max_m = [10000]
+lambda_lr_scale = [1,10,50,100]
+geo_harmonics = [ [1, 4,6,8,10, 12]]
+geo_loc_dims = [112]   # location share of h; 124 = no radial part
 
 [run_all]
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
@@ -136,10 +137,10 @@ geo_loc_dims = [112, 116, 120, 124]   # location share of h; 124 = no radial par
 [downstream]
 # dataset = "geolife"
 # path =
-# tasks = ["tul", "eta", "mode", "anomaly"]
+tasks = ["eta", "mode", "anomaly"]
 # encoders = ["gpe", "gpe_ts", "geo", "geo_ts"]
 # backbones = ["lstm", "transformer"]
-# seeds = [0]
+seeds = [0, 1, 2, 3, 4, 5]
 # epochs = 10
 # bs = 64
 # lr = 0.001
@@ -179,7 +180,7 @@ geo_loc_dims = [112, 116, 120, 124]   # location share of h; 124 = no radial par
 # road_lambda = 0.5
 # cell_m = 200.0
 # graph_path =
-seeds = [0, 1, 2, 3, 4]
+seeds = [0, 1, 2, 3, 4, 5]
 # device = "cpu"
 # out =
 
@@ -313,7 +314,7 @@ seeds = [0, 1, 2, 3, 4]
 
 [search]
 # what a trial is scored on: trajectory similarity (any dataset) or a GeoLife downstream task
-objective = "similarity"
+# objective = "tul"
 # similarity: KP@10 (default), MRR, MP, MR, global_MRR; tul: acc@1 (default), acc@5, macro_F1; eta: MAE (default), RMSE, MAPE; mode: macro_F1 (default), acc@1
 # metric = "MR" 
 # grid = every combination; random = n_trials of them
@@ -352,11 +353,11 @@ kind = "transformer"
 channels = "spatial"
 kinds = ["lstm", "transformer"]
 # latitudes (degrees north) the test city is moved to
-latitudes = [0.0, 20.0, 60.0, 70.0]
+latitudes = [0.0, 20.0,40.0, 60.0, 70.0]
 # rotations (degrees) of the test city about its centre
-angles = [0.0, 30.0, 60.0, 90.0]
+angles = [0.0, 15.0, 30.0,45.0]
 # eastward shifts (km) of the test city
-shifts_km = [0.0, 10.0, 100.0, 1000.0]
+shifts_km = [0.0, 3000.0, 9000.0, 27000.0]
 # n_train =
 # n_test = 2000
 # max_traj = 20000
