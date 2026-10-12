@@ -40,6 +40,12 @@ Rows (all evaluated zero-shot: no labels, no gradient steps on the new city):
                              coordinates, to separate what the FRAME buys from
                              what the lattice buys
 
+Frames are fitted on the whole city (training and test trajectories, without
+labels) and, after a move, re-fitted on the whole moved city; scores use the
+test trajectories only. (Before v0.9.1 the re-fit used the test split alone,
+whose own centre and axes differ from the training ones even when nothing is
+moved, so the re-fitted rows started from a handicap.)
+
 The canonical-frame rows are trained in their own frame (one extra training
 each). Because the relocated test set is an exact rigid copy, its canonical
 coordinates are identical at every sweep value, so those rows are flat *by
@@ -276,16 +282,26 @@ def run_task(task, kind, sweeps, seed, channels="spatial"):
             "geo_canon": FramedTokenizer(mk_geo(), "GEO (canonical frame)"),
             "gpe_canon": FramedTokenizer(mk_gpe(), "GPE in canonical frame")}
     models = {}
+    # The frame belongs to the CITY, not to a split: it is fitted on every
+    # point of the city (training and test trajectories, no labels). Fitting
+    # it on the test split alone gives a different frame even when nothing is
+    # moved -- other users, other neighbourhoods -- and the model then sees
+    # shifted codes. Labels are only ever used from the training split.
+    city = list(train) + list(test)
     for k, tok in toks.items():
-        tok.fit(train)
+        tok.fit(city)
         t0 = time.perf_counter()
         models[k] = task.fit(tok, kind, seed)
         print(f"    trained {k:10s} ({time.perf_counter() - t0:.0f}s)")
 
-    ref = np.concatenate([t.lonlat for t in test]).mean(0)
+    ref = np.concatenate([t.lonlat for t in city]).mean(0)
     train_box = bbox(train)
+    n_tr = len(train)
 
-    def score(row, moved):
+    def score(row, moved_city):
+        # the whole city is moved; the frame is re-fitted on all of it and
+        # the scores are computed on its test part
+        moved = moved_city[n_tr:]
         if row == "GPE":
             return task.score(models["gpe"], toks["gpe"], moved)
         if row == "GPE + space shift":
@@ -297,10 +313,10 @@ def run_task(task, kind, sweeps, seed, channels="spatial"):
         if row == "GEO (origin re-fit)":
             from ..frame import fit_frame       # the configured frame rule
             t2 = copy.deepcopy(toks["geo"])
-            fit_frame(t2.loc, moved, force=True)
+            fit_frame(t2.loc, moved_city, force=True)
             return task.score(models["geo"], t2, moved)
         key = "geo_canon" if row.startswith("GEO") else "gpe_canon"
-        return task.score(models[key], copy.deepcopy(toks[key]).refit(moved), moved)
+        return task.score(models[key], copy.deepcopy(toks[key]).refit(moved_city), moved)
 
     m = task.metric
     out = {"centre_lonlat": [float(ref[0]), float(ref[1])], "metric": m,
@@ -309,14 +325,14 @@ def run_task(task, kind, sweeps, seed, channels="spatial"):
     for sweep, values in sweeps.items():
         res = {"values": list(values), "rows": {r: [] for r in ROWS}}
         for v in values:
-            moved = _moved(test, ref, sweep, v)
+            moved_city = _moved(city, ref, sweep, v)
             for r in ROWS:
-                res["rows"][r].append(score(r, moved))
+                res["rows"][r].append(score(r, moved_city))
             print(f"    {sweep:11s} {v:>7g}  {m}: " + "  ".join(
                 f"{r.split(' (')[0][:3]}{'*' if 'canon' in r else ''}"
                 f"={res['rows'][r][-1][m]:.3f}" for r in ROWS))
         out["sweeps"][sweep] = res
-    out["in_place"] = {r: score(r, test) for r in ROWS}   # untouched test set
+    out["in_place"] = {r: score(r, city) for r in ROWS}   # nothing moved
     return out
 
 

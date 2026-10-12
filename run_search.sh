@@ -5,7 +5,7 @@
 set -e
 source .venv/bin/activate
 
-export N_EXP="AAsearch"
+export N_EXP="5"
 export DATA_PORTO=~/data/Porto/train.csv        # Kaggle taxi trajectory, POLYLINE column
 export DATA_TDRIVE=~/data/TDrive/release/taxi_log_2008_by_id
 export DATA_GEOLIFE=~/data/Geolife/Data
