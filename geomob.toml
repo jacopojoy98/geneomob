@@ -101,6 +101,7 @@ gpe_learn_freqs = false
 
 [run_all]
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+# robust is available but not in the default list
 # steps = ["gpe_suite", "downstream", "relocate", "anomaly_synth", "figures"]
 # out_dir = "results"
 # fig_dir = "figures"
@@ -384,3 +385,49 @@ gpe_learn_freqs = false
 # seeds = [0]
 # device = "cpu"
 # out =
+
+[robust]
+# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+# tasks = ["similarity", "eta", "mode"]
+# kinds = ["lstm"]
+# city = the whole test city moved as one rigid body, GEO re-fits its frame without labels; trip = every test trajectory moved on its own, random direction, GEO keeps the training frame
+# scope = "city"
+# translations (km); empty = no translation sweep
+# shifts_km = [1.0, 10.0, 100.0, 1000.0]
+# rotations (degrees); empty = no rotation sweep
+# angles = [15.0, 30.0, 45.0, 90.0]
+# rotation AND translation, as km:degrees pairs; empty = no combined sweep
+# combined = ["1:15", "10:30", "100:45", "1000:90"]
+# city scope: direction of the translations (degrees from east)
+# direction_deg = 0.0
+# add GEO with its frame NOT re-fitted, and GPE in GEO's frame (one extra training)
+# diagnostics = false
+# GEO's channels on top of location + displacement for similarity (time is off by default: the two halves of a trip share their timestamps)
+# similarity_extras = "speed"
+# n_train =
+# n_test = 2000
+# max_traj = 20000
+# epochs = 5
+# bs = 128
+# lr = 0.001
+# seeds = [0]
+# device = "cpu"
+# out =
+# tune GEO first, per dataset x task x model, on a validation split under the same transformations (values to try: [search_space])
+# search = false
+# search_method = "grid"
+# number of combinations when search_method = random
+# n_trials = 20
+# search_seed = 0
+# epochs per search trial (default: --epochs)
+# search_epochs =
+# seeds averaged inside each search trial
+# search_seeds = [0]
+# validation score that picks the winner: mean over in place + every transformation, in place only, or the worst of them
+# select_on = "mean"
+# share of the training split used for validation
+# val_frac = 0.2
+# where trials.jsonl / search_results.csv / best_*.toml go (default: <out>_search)
+# search_dir =
+# ignore search trials already in trials.jsonl
+# no_resume = false

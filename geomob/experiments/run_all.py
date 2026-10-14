@@ -35,7 +35,8 @@ STEPS = ("gpe_suite", "downstream", "relocate", "anomaly_synth", "figures")
 _FIXED = {"gpe_suite": {"paths", "out"},
           "downstream": {"dataset", "path", "out"},
           "anomaly": {"dataset", "path", "out"},
-          "relocate": {"paths", "out"}}
+          "relocate": {"paths", "out"},
+          "robust": {"paths", "out", "search", "space", "base_config", "search_dir"}}
 
 
 def _step_kwargs(fn, step, defaults, overrides):
@@ -191,6 +192,24 @@ def run(paths=None, datasets=REAL, steps=STEPS, out_dir="results",
         return {"out": str(f), "used": list(res["datasets"]),
                 "skipped": res.get("skipped_datasets", {})}
 
+    # 3c -----------------------------------------------------------------
+    def robust():
+        if not avail:
+            return "no real corpus available"
+        from .exp_robust import run as rb
+        f = out_dir / "robust.json"
+        kw = _step_kwargs(rb, "robust", dict(
+            datasets=tuple(datasets), n_test=200 if q else 2000,
+            max_traj=1500 if q else 20000, epochs=1 if q else 5,
+            shifts_km=(100.0,) if q else (1.0, 10.0, 100.0, 1000.0),
+            angles=(45.0,) if q else (15.0, 30.0, 45.0, 90.0),
+            combined=("100:45",) if q else ("1:15", "10:30", "100:45", "1000:90"),
+            seeds=seeds, device=device), overrides)
+        record("robust", rb, kw)
+        res = rb(paths=paths, out=str(f), **kw)
+        return {"out": str(f), "used": list(res["datasets"]),
+                "skipped": res.get("skipped_datasets", {})}
+
     # 4 ------------------------------------------------------------------
     def anomaly_synth():
         from .exp_anomaly import run as an
@@ -214,6 +233,7 @@ def run(paths=None, datasets=REAL, steps=STEPS, out_dir="results",
     step("gpe_suite", gpe_suite)
     step("downstream", downstream)
     step("relocate", relocate)
+    step("robust", robust)
     step("anomaly_synth", anomaly_synth)
     step("figures", figures)
 

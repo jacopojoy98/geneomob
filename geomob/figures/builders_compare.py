@@ -738,8 +738,9 @@ def _plot_sweeps(res, tname, panels, lines, title):
             ax.axvline(0.5, color="0.6", lw=0.6)
             ax.set_xlim(-0.6, len(x) + 0.5)
             ax.set_xticks(np.r_[0.0, x])
-            ax.set_xticklabels(["in\nplace"] + [f"{v:g}" for v in sw["values"]],
-                               fontsize=6)
+            labels = sw.get("labels") or [f"{v:g}" for v in sw["values"]]
+            ax.set_xticklabels(["in\nplace"] + list(labels),
+                               fontsize=6 if len(labels) < 6 else 5.5)
             ax.grid(axis="y", color="0.9", lw=0.5)
             ax.set_axisbelow(True)
             if sweep == "latitude":
@@ -827,10 +828,18 @@ def fig_relocate_summary(res):
     main = _main_rows(res)
     if not main:
         return None
-    order = [k for k in ("geo_refit", "geo_fixed", "gpe_refit", "gpe_fixed")
-             if k in dict(main)]
     short = {"gpe_fixed": "GPE, as trained", "gpe_refit": "GPE, re-fitted frame",
              "geo_fixed": "GEO, fixed frame", "geo_refit": "GEO, re-fitted frame"}
+    items = [(dict(main)[k], short[k], MAIN_STYLE[k])
+             for k in ("geo_refit", "geo_fixed", "gpe_refit", "gpe_fixed")
+             if k in dict(main)]
+    return _dumbbells(res, items, "fig_relocate_summary",
+                      "Relocated-city test, summary")
+
+
+def _dumbbells(res, items, fig_name, title, worst_label="worst over every move",
+               in_label="city in place"):
+    """items: [(results row, short label, style)], top to bottom."""
     panels = _reloc_panels(res)
     tasks = [t for t in ("eta", "mode", "similarity") if t in panels]
     tasks += [t for t in panels if t not in tasks]
@@ -848,14 +857,12 @@ def fig_relocate_summary(res):
                 continue
             m, hi = d["metric"], d["higher_is_better"]
             metric_of[tname] = (m, hi)
-            for i, k in enumerate(order):
-                row = dict(main)[k]
-                st = MAIN_STYLE[k]
+            for i, (row, _lab, st) in enumerate(items):
                 ip = d["in_place"].get(row, {}).get(m)
                 w = _worst(d, row, m, hi)
                 if ip is None or w is None:
                     continue
-                y = len(order) - 1 - i
+                y = len(items) - 1 - i
                 ax.plot([ip, w[0]], [y, y], color=st["color"], lw=1.2, ls=":",
                         zorder=2)
                 ax.plot([w[0]], [y], marker=st["marker"], ms=5.6, mfc="white",
@@ -866,9 +873,9 @@ def fig_relocate_summary(res):
                 ax.annotate(_pct(ch), xy=(1.02, y), xycoords=("axes fraction", "data"),
                             fontsize=5.8, va="center",
                             color="#B00000" if ch < -5 else "0.4")
-            ax.set_ylim(-0.6, len(order) - 0.4)
-            ax.set_yticks(range(len(order)))
-            ax.set_yticklabels([short[k] for k in order[::-1]] if c == 0 else [],
+            ax.set_ylim(-0.6, len(items) - 0.4)
+            ax.set_yticks(range(len(items)))
+            ax.set_yticklabels([it[1] for it in items[::-1]] if c == 0 else [],
                                fontsize=6)
             ax.tick_params(axis="x", labelsize=5.8, pad=1.5)
             ax.grid(axis="x", color="0.9", lw=0.5)
@@ -885,13 +892,13 @@ def fig_relocate_summary(res):
                                    fontsize=6.2)
     from matplotlib.lines import Line2D
     h = [Line2D([], [], marker="o", color="0.3", ls="none", ms=3.4,
-                label="city in place"),
+                label=in_label),
          Line2D([], [], marker="o", mfc="white", mec="0.3", ls="none", ms=5.6,
-                label="worst over every move"),
+                label=worst_label),
          Line2D([], [], marker="o", mfc="0.3", mec="0.3", ls="none", ms=0,
                 label="% = change, negative = worse")]
     ns = _n_seeds(res)
-    fig.suptitle("Relocated-city test, summary" + (f" (mean of {ns} seeds)" if ns > 1 else ""),
+    fig.suptitle(title + (f" (mean of {ns} seeds)" if ns > 1 else ""),
                  fontsize=8.5)
     H = fig.get_figheight()
     fig.texts[-1].set_y(1 - 0.06 / H)
@@ -904,7 +911,7 @@ def fig_relocate_summary(res):
         bb = axes[0][c].get_position()
         fig.text((bb.x0 + bb.x1) / 2, bb.y1 + 0.24 / H, TASK_NAME.get(tname, tname),
                  ha="center", va="bottom", fontsize=7.5)
-    return ("fig_relocate_summary", fig)
+    return (fig_name, fig)
 
 
 def tex_relocate(res):
@@ -939,6 +946,94 @@ def tex_relocate(res):
                     lines.append(r"\cmidrule(l){2-7}")
                 lines.append((f"{_tx(name)} ({kind})" if i == 0 else "")
                              + f" & {_tx(RELOC_LABEL.get(row, row))} & {ip:.3f} & "
+                             + " & ".join(cells) + f" & {ch}" + r" \\")
+            lines.append(r"\midrule")
+        lines[-1] = r"\bottomrule"
+        lines += [r"\end{tabular}", r"\end{table}", ""]
+        out.append("\n".join(lines))
+    return "\n".join(out)
+
+
+# ==========================================================================
+# 5. robustness: GEO (all channels) vs GPE as published, under rigid motions
+# ==========================================================================
+ROBUST_STYLE = {
+    "GPE (paper)": MAIN_STYLE["gpe_fixed"],
+    "GPE (paper) in GEO frame": MAIN_STYLE["gpe_refit"],
+    "GEO (full, fixed frame)": MAIN_STYLE["geo_fixed"],
+    "GEO (full)": MAIN_STYLE["geo_refit"],
+}
+ROBUST_SHORT = {
+    "GPE (paper)": "GPE, as published",
+    "GPE (paper) in GEO frame": "GPE in GEO's frame",
+    "GEO (full, fixed frame)": "GEO, frame not re-fitted",
+    "GEO (full)": "GEO, all channels",
+}
+
+
+def _robust_labels(res):
+    city = res.get("scope", "city") == "city"
+    return {
+        "GPE (paper)": "GPE as published (raw lon/lat, spatial only)",
+        "GPE (paper) in GEO frame": "GPE in GEO's re-fitted frame (diagnostic)",
+        "GEO (full, fixed frame)": "GEO, all channels, frame not re-fitted (diagnostic)",
+        "GEO (full)": ("GEO, all channels, frame re-fitted without labels" if city
+                       else "GEO, all channels (training frame)"),
+    }
+
+
+def fig_robust(res):
+    labels = _robust_labels(res)
+    order = [r for r in ("GPE (paper)", "GPE (paper) in GEO frame",
+                         "GEO (full, fixed frame)", "GEO (full)") if r in res["rows"]]
+    lines = [(r, labels[r], ROBUST_STYLE[r]) for r in order]
+    how = ("test city moved as one rigid body" if res.get("scope", "city") == "city"
+           else "each test trip moved on its own")
+    figs = []
+    for tname, panels in _reloc_panels(res).items():
+        t = TASK_NAME.get(tname, tname)
+        figs.append((f"fig_robust_{tname}", _plot_sweeps(
+            res, tname, panels, lines, f"Robustness, {t}: {how}")))
+    items = [(r, ROBUST_SHORT[r], ROBUST_STYLE[r]) for r in order[::-1]]
+    figs.append(_dumbbells(res, items, "fig_robust_summary",
+                           "Robustness to translations and rotations",
+                           worst_label="worst over every transformation",
+                           in_label="untransformed test set"))
+    return figs
+
+
+def tex_robust(res):
+    out = []
+    sweeps = [s for s in ("translation", "rotation", "combined")]
+    labels = _robust_labels(res)
+    for tname, panels in _reloc_panels(res).items():
+        metric, hi = panels[0][2]["metric"], panels[0][2]["higher_is_better"]
+        pick = min if hi else max
+        lines = [r"\begin{table}[t]", r"\centering",
+                 rf"\caption{{Robustness to rigid motions, {_tx(tname)} "
+                 rf"({_tx(metric)}, {'higher' if hi else 'lower'} is better; "
+                 rf"{_tx(res.get('scope', 'city'))} scope): value with nothing "
+                 r"moved, worst value over each family of transformations, and "
+                 r"the change from in place to the worst one (negative = worse). "
+                 r"GEO uses every channel; GPE is the published method.}",
+                 r"\begin{tabular}{llrrrrr}", r"\toprule",
+                 r"Dataset & Method & In place & Translation & Rotation & "
+                 r"Transl.\,+\,rot. & $\Delta$ (\%) \\",
+                 r"\midrule"]
+        rows = [r for r in ("GEO (full)", "GPE (paper)", "GEO (full, fixed frame)",
+                            "GPE (paper) in GEO frame") if r in res["rows"]]
+        for name, kind, d in panels:
+            for i, row in enumerate(rows):
+                cells = [f"{pick(c[metric] for c in d['sweeps'][sw]['rows'][row]):.3f}"
+                         if sw in d["sweeps"] else "--" for sw in sweeps]
+                ip = d["in_place"][row][metric]
+                w = _worst(d, row, metric, hi)
+                ch = f"{_change_pct(ip, w[0], hi):+.1f}" if w else "--"
+                ch = "0.0" if ch in ("+0.0", "-0.0") else ch
+                if i == 2:
+                    lines.append(r"\cmidrule(l){2-7}")
+                lines.append((f"{_tx(name)} ({kind})" if i == 0 else "")
+                             + f" & {_tx(labels[row])} & {ip:.3f} & "
                              + " & ".join(cells) + f" & {ch}" + r" \\")
             lines.append(r"\midrule")
         lines[-1] = r"\bottomrule"

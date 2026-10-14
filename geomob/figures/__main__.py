@@ -20,6 +20,7 @@ from .style import save, use_paper_style
 # Detection rules: (predicate on the parsed JSON, builder, default figure name)
 RULES = [
     (lambda d: d.get("relocate") is True and "datasets" in d, "relocate", None),
+    (lambda d: d.get("robust") is True and "datasets" in d, "robust", None),
     (lambda d: "tasks" in d and "backbones" in d, "downstream", None),
     (lambda d: "parts" in d and "datasets" in d, "gpe_suite", None),
     (lambda d: "encoders" in d and "latitude" in d, "audit", None),
@@ -68,6 +69,23 @@ CAPTIONS = {
         "its worst score over all moves (hollow), with the relative change; "
         "red marks a loss above 5\\%. A method that does not depend on where "
         "the city is has the two points on top of each other.",
+    "fig_robust":
+        "Robustness to rigid motions. Each model is trained once; the test set "
+        "is then translated, rotated, or both, which changes no distance, "
+        "angle, duration or speed on the ground. GPE (orange, dotted, hollow) "
+        "is the published method: fixed frequencies on raw longitude and "
+        "latitude, spatial channels only. GEO (blue, solid, filled) uses every "
+        "channel (location, displacement, time and speed, where the task "
+        "allows) and, when the whole city is moved, re-fits its frame on the "
+        "moved data without labels. The leftmost point of each panel is the "
+        "untransformed test set; bands are $\\pm$1 standard deviation over "
+        "seeds. Nothing is retrained.",
+    "fig_robust_summary":
+        "Robustness to rigid motions, summary. For each task (column) and "
+        "dataset and model (row), every method's score on the untransformed "
+        "test set (dot) and its worst score over all translations, rotations "
+        "and their combinations (ring), with the relative change; red marks a "
+        "loss above 5\\%.",
     "fig_paired":
         "GEO against GPE with matched channels, one row per setting (dataset, "
         "task, sequence model, metric). The point is the mean relative "
@@ -221,6 +239,10 @@ def build_from(path: Path):
                 continue
         except Exception:
             continue
+        if kind == "robust":
+            from . import builders_compare as C
+            TABLES.append(C.tex_robust(data))
+            return C.fig_robust(data)
         if kind == "relocate":
             from . import builders_compare as C
             TABLES.append(C.tex_relocate(data))
