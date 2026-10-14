@@ -176,7 +176,7 @@ class _Supervised:
         S = D.Standardiser().fit([tok(t) for t in self.train],
                                  getattr(tok, "raw_cols", None))
         X = S([tok(t) for t in self.train])
-        model = D._head(tok, self.out_dim, kind)
+        model = D._head(tok, self.out_dim, kind, seed)
         y = torch.from_numpy(self.y_train_t)
         D._fit(model, X, lambda M, x, m, b: self.loss(M(x, m), y[b].to(x.device)),
                c["epochs"], min(c["bs"], 64), c["lr"], c["device"], seed)
@@ -207,6 +207,9 @@ class EtaTask(_Supervised):
                 items.append((r[0], dur))
         if len(items) < 50:
             raise ValueError(f"only {len(items)} usable paths for travel time")
+        if np.std([it[1] for it in items]) < 1e-3:
+            raise ValueError("every trip has the same duration "
+                             f"({items[0][1]:.2f} min): nothing to estimate")
         tr, te = D._split_indices(items, seed=0)
         te = te[:self.cfg["n_test"]]
         self.train, self.test = [items[i][0] for i in tr], [items[i][0] for i in te]

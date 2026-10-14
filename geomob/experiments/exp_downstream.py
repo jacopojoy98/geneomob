@@ -201,9 +201,13 @@ class Head(nn.Module):
         return self.out(self.enc(x, m))
 
 
-def _head(tok, out_dim, kind):
-    """A Head whose encoder starts with tok's learnable front end, if any."""
+def _head(tok, out_dim, kind, seed=None):
+    """A Head whose encoder starts with tok's learnable front end, if any.
+    With `seed`, the initial weights depend on the seed only (not on what was
+    trained before in the same process)."""
     from ..learnable import attach
+    if seed is not None:
+        set_seed(seed)
     return attach(Head(tok.dim, out_dim, kind), tok)
 
 
@@ -433,7 +437,7 @@ def task_tul(trajs, encoders, backbones, seeds, cfg):
         S = Standardiser().fit([tok(t) for t in train], getattr(tok, "raw_cols", None))
         Xtr, Xte = S([tok(t) for t in train]), S([tok(t) for t in test])
         yt = torch.from_numpy(ytr).long()
-        model = _head(tok, C, kind)
+        model = _head(tok, C, kind, seed)
         _fit(model, Xtr, lambda M, x, m, b: nn.functional.cross_entropy(
             M(x, m), yt[b].to(x.device)), cfg["epochs"], cfg["bs"], cfg["lr"],
             cfg["device"], seed)
@@ -486,7 +490,7 @@ def task_eta(trajs, encoders, backbones, seeds, cfg):
         Xtr = S([tok(it[0]) for it in train])
         Xte = S([tok(it[0]) for it in test])
         yt = torch.from_numpy(((ytr - mu) / scale).astype(np.float32))
-        model = _head(tok, 1, kind)
+        model = _head(tok, 1, kind, seed)
         _fit(model, Xtr, lambda M, x, m, b: nn.functional.mse_loss(
             M(x, m).squeeze(-1), yt[b].to(x.device)), cfg["epochs"], cfg["bs"],
             cfg["lr"], cfg["device"], seed)
@@ -551,7 +555,7 @@ def task_mode(trajs, encoders, backbones, seeds, cfg):
         S = Standardiser().fit([tok(t) for t in train], getattr(tok, "raw_cols", None))
         Xtr, Xte = S([tok(t) for t in train]), S([tok(t) for t in test])
         yt = torch.from_numpy(ytr).long()
-        model = _head(tok, C, kind)
+        model = _head(tok, C, kind, seed)
         _fit(model, Xtr, lambda M, x, m, b: nn.functional.cross_entropy(
             M(x, m), yt[b].to(x.device)), cfg["epochs"], cfg["bs"], cfg["lr"],
             cfg["device"], seed)
@@ -611,6 +615,7 @@ def task_anomaly(trajs, encoders, backbones, seeds, cfg):
         S = Standardiser().fit([tok(t) for t in train], getattr(tok, "raw_cols", None))
         Xtr = S([tok(t) for t in train])
         Xte = S([tok(it.traj) for it in items])
+        set_seed(seed)              # initial weights from the seed alone
         model = AutoEncoder(tok.dim, kind, z_dim=cfg["z_dim"])
 
         def loss(M, x, m, b):

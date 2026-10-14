@@ -63,8 +63,9 @@ def main(argv=None):
     ra.add_argument("--steps", nargs="+",
                     default=["gpe_suite", "downstream", "relocate",
                              "anomaly_synth", "figures"],
-                    choices=["gpe_suite", "downstream", "relocate",
-                             "anomaly_synth", "figures"])
+                    choices=["gpe_suite", "downstream", "relocate", "robust",
+                             "anomaly_synth", "figures"],
+                    help="robust is available but not in the default list")
     ra.add_argument("--out-dir", default="results")
     ra.add_argument("--fig-dir", default="figures")
     ra.add_argument("--quick", action="store_true",
@@ -405,6 +406,78 @@ def main(argv=None):
     rl.add_argument("--device", default="cpu")
     rl.add_argument("--out", default=None)
 
+    rb = sub.add_parser(
+        "robust", help="GEO with every channel vs GPE as published, on a test "
+                       "set that is translated, rotated, or both (optionally "
+                       "after a GEO hyperparameter search on validation)")
+    rb.add_argument("--datasets", nargs="+",
+                    default=["tdrive", "porto", "roma", "ais", "geolife"])
+    rb.add_argument("--paths", nargs="*", default=[],
+                    help="name=path pairs; otherwise [paths] / DATA_<NAME>")
+    rb.add_argument("--tasks", nargs="+", default=["similarity", "eta", "mode"],
+                    choices=["similarity", "eta", "mode"])
+    rb.add_argument("--kinds", nargs="+", default=["lstm"],
+                    choices=["lstm", "transformer", "gnn"])
+    rb.add_argument("--scope", default="city", choices=["city", "trip"],
+                    help="city = the whole test city moved as one rigid body, "
+                         "GEO re-fits its frame without labels; trip = every "
+                         "test trajectory moved on its own, random direction, "
+                         "GEO keeps the training frame")
+    rb.add_argument("--shifts-km", type=float, nargs="*",
+                    default=[1.0, 10.0, 100.0, 1000.0],
+                    help="translations (km); empty = no translation sweep")
+    rb.add_argument("--angles", type=float, nargs="*",
+                    default=[15.0, 30.0, 45.0, 90.0],
+                    help="rotations (degrees); empty = no rotation sweep")
+    rb.add_argument("--combined", nargs="*",
+                    default=["1:15", "10:30", "100:45", "1000:90"],
+                    help="rotation AND translation, as km:degrees pairs; "
+                         "empty = no combined sweep")
+    rb.add_argument("--direction-deg", type=float, default=0.0,
+                    help="city scope: direction of the translations "
+                         "(degrees from east)")
+    rb.add_argument("--diagnostics", action="store_true",
+                    help="add GEO with its frame NOT re-fitted, and GPE in "
+                         "GEO's frame (one extra training)")
+    rb.add_argument("--similarity-extras", default="speed",
+                    choices=["none", "speed", "time", "time_speed"],
+                    help="GEO's channels on top of location + displacement for "
+                         "similarity (time is off by default: the two halves "
+                         "of a trip share their timestamps)")
+    rb.add_argument("--n-train", type=int, default=None)
+    rb.add_argument("--n-test", type=int, default=2000)
+    rb.add_argument("--max-traj", type=int, default=20000)
+    rb.add_argument("--epochs", type=int, default=5)
+    rb.add_argument("--bs", type=int, default=128)
+    rb.add_argument("--lr", type=float, default=1e-3)
+    rb.add_argument("--seeds", type=int, nargs="+", default=[0])
+    rb.add_argument("--device", default="cpu")
+    rb.add_argument("--out", default=None)
+    rb.add_argument("--search", action="store_true",
+                    help="tune GEO first, per dataset x task x model, on a "
+                         "validation split under the same transformations "
+                         "(values to try: [search_space])")
+    rb.add_argument("--search-method", default="grid", choices=["grid", "random"])
+    rb.add_argument("--n-trials", type=int, default=20,
+                    help="number of combinations when search_method = random")
+    rb.add_argument("--search-seed", type=int, default=0)
+    rb.add_argument("--search-epochs", type=int, default=None,
+                    help="epochs per search trial (default: --epochs)")
+    rb.add_argument("--search-seeds", type=int, nargs="+", default=[0],
+                    help="seeds averaged inside each search trial")
+    rb.add_argument("--select-on", default="mean",
+                    choices=["mean", "in_place", "worst"],
+                    help="validation score that picks the winner: mean over "
+                         "in place + every transformation, in place only, or "
+                         "the worst of them")
+    rb.add_argument("--val-frac", type=float, default=0.2,
+                    help="share of the training split used for validation")
+    rb.add_argument("--search-dir", default=None,
+                    help="where trials.jsonl / search_results.csv / best_*.toml "
+                         "go (default: <out>_search)")
+    rb.add_argument("--no-resume", action="store_true",
+                    help="ignore search trials already in trials.jsonl")
+
     cfgp = sub.add_parser("config", help="write a commented config template "
                                          "listing every hyperparameter")
     cfgp.add_argument("--write", default="geomob.toml",
@@ -448,7 +521,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     args._cfg_overrides = {
         sec: _cfg.section_overrides(cfg, sub.choices, sec)
-        for sec in ("gpe_suite", "downstream", "anomaly", "relocate")} if cfg else {}
+        for sec in ("gpe_suite", "downstream", "anomaly", "relocate", "robust")} if cfg else {}
     args._subparsers = sub.choices
     args._cfg = cfg
     _cfg.start_run(args.cmd, argparse.Namespace(**{
@@ -523,6 +596,24 @@ def _dispatch(args):
                    max_traj=args.max_traj, epochs=args.epochs, bs=args.bs,
                    lr=args.lr, seeds=tuple(args.seeds), device=args.device,
                    out=args.out)
+
+    if args.cmd == "robust":
+        from .experiments.exp_robust import run as _rb
+        return _rb(datasets=tuple(args.datasets), paths=_paths(args.paths),
+                   tasks=tuple(args.tasks), kinds=tuple(args.kinds),
+                   scope=args.scope, shifts_km=tuple(args.shifts_km),
+                   angles=tuple(args.angles), combined=tuple(args.combined),
+                   direction_deg=args.direction_deg, diagnostics=args.diagnostics,
+                   similarity_extras=args.similarity_extras, n_train=args.n_train,
+                   n_test=args.n_test, max_traj=args.max_traj, epochs=args.epochs,
+                   bs=args.bs, lr=args.lr, seeds=tuple(args.seeds),
+                   device=args.device, out=args.out, search=args.search,
+                   space=args._cfg.get("search_space"), base_config=args._cfg,
+                   search_method=args.search_method, n_trials=args.n_trials,
+                   search_seed=args.search_seed, search_epochs=args.search_epochs,
+                   search_seeds=tuple(args.search_seeds), select_on=args.select_on,
+                   val_frac=args.val_frac, search_dir=args.search_dir,
+                   resume=not args.no_resume)
 
     if args.cmd == "selfcheck":
         from .selfcheck import run as _sc

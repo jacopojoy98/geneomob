@@ -204,6 +204,101 @@ what matters.
 trip separately, stacking them on one point; they now move the city as a whole
 (results from those two options before v0.7.0 should be re-run).
 
+## Robustness: GEO with every channel vs GPE as published (`robust`)
+
+```bash
+python -m geomob.cli robust --config geomob.toml --seeds 0 1 2 --out results/robust.json
+python -m geomob.cli robust --config geomob.toml --search --out results/robust.json  # tune GEO first
+python -m geomob.figures results/robust.json -o figures
+```
+
+Two methods, each trained once per dataset x task x model x seed:
+
+* **GPE (paper)**: Liu et al. as published. Fixed frequency ladder (Algorithm
+  1, `[encoders] h`, `gpe_eps_over_2pi`) on raw longitude/latitude, spatial
+  only, no frame. `gpe_learn_freqs` is ignored here on purpose.
+* **GEO (full)**: every GEO channel from `[encoders]` (location lattice,
+  displacement, time, speed; learned wavelengths if `learn_lambdas` is set),
+  with its frame re-fitted on the transformed data without labels. Per task:
+
+  | task | GEO channels | why |
+  |---|---|---|
+  | similarity | location + displacement + `similarity_extras` (default `speed`) | time is off by default: the two halves of a trip share their timestamps, so it would give the answer away |
+  | eta | location + displacement + departure time | speed would encode the answer |
+  | mode | location + displacement + time + speed | |
+
+  GEO therefore has more dimensions than GPE (the token sizes are recorded in
+  the results); this is the comparison of the two methodologies as wholes.
+
+The **test set** is transformed and every model re-scored, with nothing
+retrained:
+
+| sweep | option | default |
+|---|---|---|
+| translation | `shifts_km` | 1, 10, 100, 1000 km (towards `direction_deg`, 0 = east) |
+| rotation | `angles` | 15, 30, 45, 90 degrees |
+| translation + rotation | `combined` | `"1:15"`, `"10:30"`, `"100:45"`, `"1000:90"` (km:degrees) |
+
+An empty list drops that sweep. `scope` says what is moved:
+
+* `city` (default): the whole city as one rigid body, as a deployment
+  elsewhere would see it. GEO re-fits its frame on the moved city (training +
+  test trajectories, no labels); scores use the test trajectories.
+* `trip`: every test trajectory on its own (random direction, random turn
+  sign, about its own centre). A scattered test set has no common frame, so
+  GEO keeps the training frame: this shows what the channels themselves
+  tolerate.
+
+`--diagnostics` adds GEO with its frame NOT re-fitted (same trained model, no
+extra cost) and GPE trained and tested in GEO's frame (one extra training),
+which separate the effect of the frame from that of the channels.
+
+**Search** (`--search`): the values to try are `[search_space]` (same format
+as the `search` command). For every dataset x task x model, each candidate GEO
+configuration is trained on the training split minus a validation part
+(`val_frac`, user-disjoint where there are users) and scored on that part,
+untransformed and under every transformation above. `select_on` picks the
+winner by the `mean` over all of them (default), the `in_place` value, or the
+`worst`. The test set is never looked at, and GPE is not searched (it is run
+with the published settings). Files in `<out>_search/` (or `search_dir`):
+`trials.jsonl` (the search resumes from it), `search_results.csv`, and
+`best_<dataset>_<task>_<model>.toml`. Use `search_epochs` and `search_seeds` to
+keep trials cheap. If `[search_space]` holds `[model]` keys, only GEO's model
+is tuned.
+
+Outputs: `fig_robust_<task>` (one row of panels per dataset / model, one
+column per sweep, the untransformed score at the left of each panel),
+`fig_robust_summary` (untransformed vs worst, per method, task and dataset,
+with the % change), and a table in `tables.tex`. `run_all --steps ... robust`
+runs it without search.
+
+All options also go in a `[robust]` section of the config file, e.g.
+
+```toml
+[robust]
+tasks = ["eta", "mode"]
+seeds = [0, 1, 2]
+scope = "city"
+combined = ["1:15", "10:30", "100:45", "1000:90"]
+search = true
+select_on = "mean"
+search_epochs = 2
+```
+
+**Reproducibility fix (v0.9.3).** Supervised heads (TUL, ETA, mode, the
+anomaly autoencoder, relocate) were built before the training seed was set,
+so their initial weights depended on what had been trained earlier in the
+same process: the same configuration could score differently depending on
+the order of a run. They are now initialised from the seed alone. Numbers
+from `downstream`, `relocate` and `search` can therefore move slightly
+against earlier runs; similarity training was not affected.
+
+**Frame fix (v0.9.3).** With `frame_orientation = "grid"`, a city without a
+street grid (grid strength below 0.02; Rome's is about 0.003) used to get a
+fixed east axis, which does not turn with the city: a rotated copy then got a
+different frame, and GEO was not exactly invariant to rotation there. It now
+falls back to the principal axis, which turns with the data, and says so once.
+
 ## Results per dataset, and critical-difference diagrams
 
 `run_all` now runs the downstream tasks on **every available dataset**, not

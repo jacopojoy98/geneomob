@@ -17,7 +17,9 @@ All controlled from `[encoders]`:
                                  m = 4 harmonic of step headings; of the four
                                  grid-aligned directions (a square grid cannot
                                  tell them apart) the one nearest the principal
-                                 axis is taken
+                                 axis is taken. Where there is no grid
+                                 (strength < 0.02, e.g. Rome) it falls
+                                 back to "pca"
                        "pca"     x along the longest spread of the points, pointed
                                  at the heavier tail
     geo_coords         "metric"  location channel in metres in that local frame
@@ -146,8 +148,16 @@ def fit_orientation(trajs, ref, rule=None):
         return 0.0
     if rule == "grid":
         ang, strength = grid_angle(trajs, ref)
-        if strength < 0.02:                     # no street grid to align to
-            return 0.0
+        if strength < 0.02:
+            # no street grid to align to: use the principal axis, which turns
+            # with the data. (Before v0.9.3 this returned 0, i.e. due east,
+            # which does NOT turn with the city, so a rotated gridless city
+            # got a different frame.)
+            if "nogrid" not in _warned:        # once per run
+                _warned.add("nogrid")
+                print(f"  [frame] no street grid near ({ref[0]:.2f}, {ref[1]:.2f}) "
+                      f"(strength {strength:.3f}); orienting by the principal axis")
+            return pca_angle(_points(trajs), ref)[0]
         # a square grid fixes the axes only up to 90 degrees; pick, of the four
         # grid-aligned directions, the one closest to the principal axis
         # (which is defined up to 360 degrees), so a turned city gets a turned
