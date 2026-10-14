@@ -58,7 +58,7 @@ geo_disp_lam_min_m = 40.0
 # coarsest displacement wavelength (m)
 geo_disp_lam_max_m = 20000.0
 # angular harmonics of the displacement channel (m=4: street-grid order)
-geo_harmonics = [1, 4]
+geo_harmonics = [1, 4,6,8,10,12]
 # cyclic C24 harmonics
 time_hour_harmonics = 4
 # cyclic C7 harmonics
@@ -157,7 +157,7 @@ geo_loc_dims = [96, 112, 116, 124]   # location share of h; 124 = no radial part
 # tasks = ["tul", "eta", "mode", "anomaly"]
 # encoders = ["gpe", "gpe_ts", "geo", "geo_ts"]
 # backbones = ["lstm", "transformer"]
-# seeds = [0]
+seeds = [0,1,2,3,4,5]
 # epochs = 10
 # bs = 64
 # lr = 0.001
@@ -197,7 +197,7 @@ geo_loc_dims = [96, 112, 116, 124]   # location share of h; 124 = no radial part
 # road_lambda = 0.5
 # cell_m = 200.0
 # graph_path =
-# seeds = [0]
+seeds = [0,1,2,3,4,5]
 # device = "cpu"
 # out =
 
