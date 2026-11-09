@@ -80,7 +80,7 @@ frame_anchor_radius_km = 75.0
 # coordinates of GEO's toroidal (location) part: metric (metres in the local frame) or lonlat (raw longitude/latitude, like GPE, with GEO's wavelengths)
 geo_coords = "metric"
 # GEO wavelengths trained with the model instead of fixed: none, loc (location), disp (radial), both. They start on the lam_min..lam_max ladder; equivariance is kept for any value
-learn_lambdas = "none"
+learn_lambdas = "both"
 # scales whose initial wavelength is below this (metres) stay fixed: for short wavelengths the gradient is mostly noise. 0 = learn all
 learn_lambda_min_m = 0.0
 # how fast the log-wavelengths move relative to the other weights (1 = same step size)
@@ -393,11 +393,11 @@ seeds = [0,1,2,3,4,5]
 # city = the whole test city moved as one rigid body, GEO re-fits its frame without labels; trip = every test trajectory moved on its own, random direction, GEO keeps the training frame
 # scope = "city"
 # translations (km); empty = no translation sweep
-# shifts_km = [1.0, 10.0, 100.0, 1000.0]
+shifts_km = [1.0, 20.0, 40, 80, 160.0]
 # rotations (degrees); empty = no rotation sweep
-# angles = [15.0, 30.0, 45.0, 90.0]
+angles = [5.0, 15.0, 23.0, 30.0, 45.0]
 # rotation AND translation, as km:degrees pairs; empty = no combined sweep
-# combined = ["1:15", "10:30", "100:45", "1000:90"]
+combined = ["1:15", "10:30", "20:23", "80:41"]
 # city scope: direction of the translations (degrees from east)
 # direction_deg = 0.0
 # add GEO with its frame NOT re-fitted, and GPE in GEO's frame (one extra training)
