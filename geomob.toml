@@ -25,7 +25,7 @@
 
 [common]
 # applied to every command that has the option
-# device = "cuda"
+device = "cuda"
 # seeds = [0, 1, 2]
 
 [model]
@@ -54,11 +54,11 @@ geo_loc_lam_max_m = 200000.0
 # radial displacement scales; 0 = (h/2 - 4) / 2
 geo_disp_scales = 0
 # finest displacement wavelength (m)
-geo_disp_lam_min_m = 5.0
+geo_disp_lam_min_m = 40.0
 # coarsest displacement wavelength (m)
 geo_disp_lam_max_m = 20000.0
 # angular harmonics of the displacement channel (m=4: street-grid order)
-geo_harmonics = [1, 4]
+geo_harmonics = [1, 4,6,8,10,12]
 # cyclic C24 harmonics
 time_hour_harmonics = 4
 # cyclic C7 harmonics
@@ -70,9 +70,9 @@ speed_lo = 0.05
 # SpeedGEO longest wavelength (log1p units)
 speed_hi = 60.0
 # origin of GEO's local frame: mean (centre of mass of the training points; moves with the sample), median (geometric median: robust to far-away trips, and it moves with the city when the city is shifted or turned), anchor (a fixed city centre: identical for training, validation, test and every run; falls back to the median when no anchor is near)
-frame_origin = "mean"
+frame_origin = "median"
 # x-axis of the frame: none (east), grid (dominant street direction, from step headings), pca (longest spread of the points)
-frame_orientation = "none"
+frame_orientation = "grid"
 # extra city centres for frame_origin = anchor, e.g. {lisbon = [-9.1393, 38.7223]}; built in: beijing, porto, rome, san_francisco, singapore, new_york
 frame_anchors = {}
 # an anchor is used only if the data's median lies within this distance of it
@@ -93,11 +93,11 @@ gpe_learn_freqs = false
 # key, the list of values to try. Every combination is a trial (grid),
 # or a random subset of them (method = "random" in [search]).
 # geo_loc_lam_min_m = [10.0, 25.0, 50.0]
-# geo_loc_lam_max_m = [50000.0, 200000.0]
+geo_loc_lam_max_m = [300000.0, 900000.0, 2700000.0]
 # geo_disp_lam_min_m = [2.0, 5.0, 10.0]
 # geo_disp_lam_max_m = [5000.0, 20000.0]
-# geo_harmonics = [[1], [1, 4], [1, 2, 4]]
-# geo_loc_dims = [64, 80, 96, 112, 124]   # location share of h; 124 = no radial part
+geo_harmonics = [[1, 4], [1, 2, 4, 6, 8]]
+geo_loc_dims = [96, 112, 116, 124]   # location share of h; 124 = no radial part
 
 [run_all]
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
@@ -158,7 +158,7 @@ gpe_learn_freqs = false
 # tasks = ["tul", "eta", "mode", "anomaly"]
 # encoders = ["gpe", "gpe_ts", "geo", "geo_ts"]
 # backbones = ["lstm", "transformer"]
-# seeds = [0]
+seeds = [0,1,2,3,4,5]
 # epochs = 10
 # bs = 64
 # lr = 0.001
@@ -198,7 +198,7 @@ gpe_learn_freqs = false
 # road_lambda = 0.5
 # cell_m = 200.0
 # graph_path =
-# seeds = [0]
+seeds = [0,1,2,3,4,5]
 # device = "cpu"
 # out =
 
