@@ -342,8 +342,25 @@ Options:
 - `ft_epochs` / `ft_lr` for fine-tuning.
 - `similarity_metric` (default KP@10).
 
-To use tuned GEO settings, pass a `best_*.toml` from `search` or
-`robust --search` as `--config`.
+**Search** (`--search`). A source model has to read the target with the
+same tokenizer, so GEO gets one configuration per task and model, shared by
+all datasets (per-dataset settings from `robust --search` cannot be used
+here). Each candidate in `[search_space]` is trained on every dataset's
+training split minus a validation part (`val_frac`) and scored on that part.
+Scores are divided by the base configuration's score on the same dataset
+(inverted for lower-is-better metrics), and the best mean ratio wins, so no
+dataset dominates because of its scale. Test sets are never used; GPE is not
+searched. `search_epochs` and `search_seeds` keep trials cheap. Files in
+`<out>_search/`: `trials.jsonl` (an interrupted search resumes from it),
+`search_results.csv` (one column per dataset), and
+`best_<task>_<model>.toml`, which runs the winner directly. The results file
+records each task's GEO layout, the settings that differ from the base, and
+the search summary.
+
+```bash
+python -m geomob.cli transfer_suite --config geomob.toml --search --search-epochs 3 \
+    --seeds 0 1 2 --out results/transfer.json
+```
 
 Cost per task, model and seed:
 - one training per dataset and method (also the in-domain reference);
