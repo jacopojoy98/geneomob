@@ -43,6 +43,7 @@ REQUIRED = {
     "geomob.experiments.exp_search": ["run", "check_space"],
     "geomob.experiments.exp_relocate": ["run", "CanonicalFrame"],
     "geomob.experiments.exp_robust": ["run", "gpe_paper", "geo_full", "make_sweeps"],
+    "geomob.experiments.exp_transfer": ["run", "run_seed", "Domain"],
     "geomob.figures": ["save", "use_paper_style"],
     "geomob.figures.builders": [],
     "geomob.figures.builders_suite": ["fig_gpe_suite", "fig_downstream"],

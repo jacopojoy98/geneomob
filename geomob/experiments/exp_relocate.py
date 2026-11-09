@@ -241,6 +241,7 @@ class ModeTask(_Supervised):
         self.train, test = D.split_user_disjoint(trajs, seed=0)
         self.test = test[:self.cfg["n_test"]]
         self.out_dim = len(classes)
+        self.classes = classes
         self.y_train_t = np.array([ix[t.label] for t in self.train]).astype(np.int64)
         self.y_test = np.array([ix[t.label] for t in self.test])
         return self

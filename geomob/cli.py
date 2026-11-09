@@ -478,6 +478,51 @@ def main(argv=None):
     rb.add_argument("--no-resume", action="store_true",
                     help="ignore search trials already in trials.jsonl")
 
+    ts = sub.add_parser(
+        "transfer_suite", help="train on one dataset, test on another: GEO with "
+                               "every channel vs GPE as published, zero-shot, "
+                               "fine-tuned and from scratch")
+    ts.add_argument("--datasets", nargs="+",
+                    default=["tdrive", "porto", "roma", "ais", "geolife"])
+    ts.add_argument("--paths", nargs="*", default=[],
+                    help="name=path pairs; otherwise [paths] / DATA_<NAME>")
+    ts.add_argument("--tasks", nargs="+", default=["similarity", "eta"],
+                    choices=["similarity", "eta", "mode"],
+                    help="mode needs mode labels on two datasets (GeoLife alone "
+                         "has them)")
+    ts.add_argument("--kinds", nargs="+", default=["lstm"],
+                    choices=["lstm", "transformer", "gnn"])
+    ts.add_argument("--fractions", type=float, nargs="*", default=[0.01, 0.1, 1.0],
+                    help="fractions of the target's training split used for "
+                         "fine-tuning and for the from-scratch baseline "
+                         "(zero-shot is always run)")
+    ts.add_argument("--similarity-extras", default="none",
+                    choices=["none", "speed", "time", "time_speed"],
+                    help="GEO's channels on top of location + displacement for "
+                         "similarity (none: the odd/even protocol changes the "
+                         "sampling interval, which the speed channel encodes)")
+    ts.add_argument("--similarity-metric", default="KP@10",
+                    choices=["KP@10", "MRR", "MP", "MR"])
+    ts.add_argument("--no-adapt-norm", action="store_true",
+                    help="zero-shot: keep the SOURCE token standardisation "
+                         "instead of re-fitting it on the target's unlabelled "
+                         "tokens")
+    ts.add_argument("--diagnostics", action="store_true",
+                    help="zero-shot also with GEO's frame left at the source city")
+    ts.add_argument("--n-train", type=int, default=None)
+    ts.add_argument("--n-test", type=int, default=2000)
+    ts.add_argument("--max-traj", type=int, default=20000)
+    ts.add_argument("--epochs", type=int, default=5)
+    ts.add_argument("--ft-epochs", type=int, default=None,
+                    help="fine-tuning epochs (default: --epochs)")
+    ts.add_argument("--bs", type=int, default=128)
+    ts.add_argument("--lr", type=float, default=1e-3)
+    ts.add_argument("--ft-lr", type=float, default=None,
+                    help="fine-tuning learning rate (default: --lr)")
+    ts.add_argument("--seeds", type=int, nargs="+", default=[0])
+    ts.add_argument("--device", default="cpu")
+    ts.add_argument("--out", default=None)
+
     cfgp = sub.add_parser("config", help="write a commented config template "
                                          "listing every hyperparameter")
     cfgp.add_argument("--write", default="geomob.toml",
@@ -521,7 +566,8 @@ def main(argv=None):
     args = p.parse_args(argv)
     args._cfg_overrides = {
         sec: _cfg.section_overrides(cfg, sub.choices, sec)
-        for sec in ("gpe_suite", "downstream", "anomaly", "relocate", "robust")} if cfg else {}
+        for sec in ("gpe_suite", "downstream", "anomaly", "relocate", "robust",
+                    "transfer_suite")} if cfg else {}
     args._subparsers = sub.choices
     args._cfg = cfg
     _cfg.start_run(args.cmd, argparse.Namespace(**{
@@ -614,6 +660,19 @@ def _dispatch(args):
                    search_seeds=tuple(args.search_seeds), select_on=args.select_on,
                    val_frac=args.val_frac, search_dir=args.search_dir,
                    resume=not args.no_resume)
+
+    if args.cmd == "transfer_suite":
+        from .experiments.exp_transfer import run as _tf
+        return _tf(datasets=tuple(args.datasets), paths=_paths(args.paths),
+                   tasks=tuple(args.tasks), kinds=tuple(args.kinds),
+                   fractions=tuple(args.fractions),
+                   similarity_extras=args.similarity_extras,
+                   similarity_metric=args.similarity_metric,
+                   adapt_norm=not args.no_adapt_norm, diagnostics=args.diagnostics,
+                   n_train=args.n_train, n_test=args.n_test, max_traj=args.max_traj,
+                   epochs=args.epochs, ft_epochs=args.ft_epochs, bs=args.bs,
+                   lr=args.lr, ft_lr=args.ft_lr, seeds=tuple(args.seeds),
+                   device=args.device, out=args.out)
 
     if args.cmd == "selfcheck":
         from .selfcheck import run as _sc
