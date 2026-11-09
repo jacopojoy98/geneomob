@@ -838,9 +838,17 @@ def fig_relocate_summary(res):
 
 
 def _dumbbells(res, items, fig_name, title, worst_label="worst over every move",
-               in_label="city in place"):
-    """items: [(results row, short label, style)], top to bottom."""
-    panels = _reloc_panels(res)
+               in_label="city in place", panels=None, pair_fn=None,
+               bad_pct=5.0, task_names=None):
+    """items: [(results row, short label, style)], top to bottom.
+    `panels`: task -> [(row name, model, data)] (default: relocation layout);
+    `pair_fn(d, row, metric, higher)` -> (reference value, other value)
+    (default: in place vs worst over every move)."""
+    panels = panels or _reloc_panels(res)
+    if pair_fn is None:
+        def pair_fn(d, row, m, hi):
+            w = _worst(d, row, m, hi)
+            return d["in_place"].get(row, {}).get(m), (w[0] if w else None)
     tasks = [t for t in ("eta", "mode", "similarity") if t in panels]
     tasks += [t for t in panels if t not in tasks]
     rows = sorted({(n, k) for t in tasks for n, k, _ in panels[t]})
@@ -858,10 +866,10 @@ def _dumbbells(res, items, fig_name, title, worst_label="worst over every move",
             m, hi = d["metric"], d["higher_is_better"]
             metric_of[tname] = (m, hi)
             for i, (row, _lab, st) in enumerate(items):
-                ip = d["in_place"].get(row, {}).get(m)
-                w = _worst(d, row, m, hi)
-                if ip is None or w is None:
+                ip, wv = pair_fn(d, row, m, hi)
+                if ip is None or wv is None:
                     continue
+                w = (wv,)
                 y = len(items) - 1 - i
                 ax.plot([ip, w[0]], [y, y], color=st["color"], lw=1.2, ls=":",
                         zorder=2)
@@ -872,7 +880,7 @@ def _dumbbells(res, items, fig_name, title, worst_label="worst over every move",
                 ch = _change_pct(ip, w[0], hi)
                 ax.annotate(_pct(ch), xy=(1.02, y), xycoords=("axes fraction", "data"),
                             fontsize=5.8, va="center",
-                            color="#B00000" if ch < -5 else "0.4")
+                            color="#B00000" if ch < -bad_pct else "0.4")
             ax.set_ylim(-0.6, len(items) - 0.4)
             ax.set_yticks(range(len(items)))
             ax.set_yticklabels([it[1] for it in items[::-1]] if c == 0 else [],
@@ -909,7 +917,8 @@ def _dumbbells(res, items, fig_name, title, worst_label="worst over every move",
                bbox_to_anchor=(0.5, 1 - 0.22 / H), handletextpad=0.3)
     for c, tname in enumerate(tasks):       # task names over the columns
         bb = axes[0][c].get_position()
-        fig.text((bb.x0 + bb.x1) / 2, bb.y1 + 0.24 / H, TASK_NAME.get(tname, tname),
+        fig.text((bb.x0 + bb.x1) / 2, bb.y1 + 0.24 / H,
+                 {**TASK_NAME, **(task_names or {})}.get(tname, tname),
                  ha="center", va="bottom", fontsize=7.5)
     return (fig_name, fig)
 

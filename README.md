@@ -299,6 +299,74 @@ fixed east axis, which does not turn with the city: a rotated copy then got a
 different frame, and GEO was not exactly invariant to rotation there. It now
 falls back to the principal axis, which turns with the data, and says so once.
 
+## Transfer across datasets (`transfer_suite`)
+
+```bash
+python -m geomob.cli transfer_suite --config geomob.toml --seeds 0 1 2 --out results/transfer.json
+python -m geomob.figures results/transfer.json -o figures
+```
+
+The same two methods as `robust` (GPE as published; GEO with every channel the
+task allows), now trained on one dataset and evaluated on another, for every
+ordered pair of the available datasets:
+
+| regime | what is trained | uses target labels? |
+|---|---|---|
+| in domain | a model on the target's whole training split (the reference) | yes |
+| zero-shot | the source model, applied to the target's test split | **no** |
+| fine-tuned | the source model, trained further on `fractions` of the target's training split | that fraction |
+| from scratch | a fresh model on the same fraction of the target | that fraction |
+
+Zero-shot uses no target label. The only adaptation is label-free:
+- GEO re-fits its frame on the target city.
+- With `adapt_norm` (default; off with `--no-adapt-norm`), both methods re-fit
+  their per-dimension token standardisation on the target's unlabelled
+  training tokens.
+- Travel times are read out on the source's label scale.
+
+The gap between "fine-tuned" and "from scratch" at the same fraction is what
+the source dataset contributed. `--diagnostics` adds GEO zero-shot with its
+frame left at the source city.
+
+Tasks:
+- `similarity` and `eta` by default.
+- `mode` only when two datasets have mode labels with the same classes (GeoLife
+  alone has them, so it is skipped).
+- Similarity uses location + displacement for GEO (`similarity_extras =
+  "none"`). The odd/even protocol doubles the sampling interval that the speed
+  channel encodes, and datasets differ in sampling rate, which matters even
+  more across datasets.
+
+Options:
+- `fractions` (default 1 %, 10 %, 100 %; at least 32 trajectories).
+- `ft_epochs` / `ft_lr` for fine-tuning.
+- `similarity_metric` (default KP@10).
+
+To use tuned GEO settings, pass a `best_*.toml` from `search` or
+`robust --search` as `--config`.
+
+Cost per task, model and seed:
+- one training per dataset and method (also the in-domain reference);
+- one per ordered pair x fraction (fine-tuning);
+- one per dataset x fraction below 100 % (from scratch).
+
+With 3 datasets and 3 fractions that is 6 + 18 + 6 = 30 trainings per method.
+
+Figures:
+- **`fig_transfer_suite_<task>`**: rows = target, columns = source. Each panel
+  starts at zero-shot, then fine-tuning on growing fractions (solid, filled)
+  against from scratch (dotted, hollow). Thin dashed lines: in domain. The
+  diagonal panels show the target-only learning curve.
+- **`fig_transfer_suite_matrix`**: zero-shot retention, the % of the in-domain
+  score kept, for every source x target, for GPE, for GEO and as GEO minus GPE.
+- **`fig_transfer_suite_summary`**: per pair and task, in domain (dot) vs
+  zero-shot (ring) with the % change.
+- A LaTeX table in `tables.tex`.
+
+`gpe_suite`'s global part is still there: GPE's own Table 4 (right), a
+similarity-only MRR matrix with spatial GEO. `transfer_suite` is the full
+comparison.
+
 ## Results per dataset, and critical-difference diagrams
 
 `run_all` now runs the downstream tasks on **every available dataset**, not

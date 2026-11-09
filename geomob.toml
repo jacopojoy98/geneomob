@@ -431,3 +431,31 @@ combined = ["1:15", "10:30", "20:23", "80:41"]
 # search_dir =
 # ignore search trials already in trials.jsonl
 # no_resume = false
+
+[transfer_suite]
+# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+# mode needs mode labels on two datasets (GeoLife alone has them)
+# tasks = ["similarity", "eta"]
+# kinds = ["lstm"]
+# fractions of the target's training split used for fine-tuning and for the from-scratch baseline (zero-shot is always run)
+# fractions = [0.01, 0.1, 1.0]
+# GEO's channels on top of location + displacement for similarity (none: the odd/even protocol changes the sampling interval, which the speed channel encodes)
+# similarity_extras = "none"
+# similarity_metric = "KP@10"
+# zero-shot: keep the SOURCE token standardisation instead of re-fitting it on the target's unlabelled tokens
+# no_adapt_norm = false
+# zero-shot also with GEO's frame left at the source city
+# diagnostics = false
+# n_train =
+# n_test = 2000
+# max_traj = 20000
+# epochs = 5
+# fine-tuning epochs (default: --epochs)
+# ft_epochs =
+# bs = 128
+# lr = 0.001
+# fine-tuning learning rate (default: --lr)
+# ft_lr =
+# seeds = [0]
+# device = "cpu"
+# out =

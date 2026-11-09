@@ -19,6 +19,7 @@ from .style import save, use_paper_style
 
 # Detection rules: (predicate on the parsed JSON, builder, default figure name)
 RULES = [
+    (lambda d: d.get("transfer") is True and "results" in d, "transfer_suite", None),
     (lambda d: d.get("relocate") is True and "datasets" in d, "relocate", None),
     (lambda d: d.get("robust") is True and "datasets" in d, "robust", None),
     (lambda d: "tasks" in d and "backbones" in d, "downstream", None),
@@ -69,6 +70,31 @@ CAPTIONS = {
         "its worst score over all moves (hollow), with the relative change; "
         "red marks a loss above 5\\%. A method that does not depend on where "
         "the city is has the two points on top of each other.",
+    "fig_transfer_suite":
+        "Transfer across datasets. Rows are the target dataset, columns the "
+        "source. Each model is trained on the source; the leftmost point is "
+        "that model applied to the target without any target label "
+        "(zero-shot; GEO re-fits its frame on the target city, and both "
+        "methods re-fit their token standardisation on unlabelled target "
+        "data). Solid lines then fine-tune it on growing fractions of the "
+        "target's training data; dotted lines with hollow markers train a "
+        "fresh model on the same fraction, so the gap between the two is what "
+        "the source contributed. Thin dashed lines: trained on the whole "
+        "target. GPE (orange) is the published method, GEO (blue) uses every "
+        "channel the task allows; bands are $\\pm$1 standard deviation over "
+        "seeds.",
+    "fig_transfer_suite_matrix":
+        "Zero-shot transfer: the share of the in-domain score that each method "
+        "keeps when trained on the source (row) and applied to the target "
+        "(column) without target labels; 100 means nothing is lost. For "
+        "lower-is-better metrics the ratio is in-domain over zero-shot. Right: "
+        "GEO minus GPE in percentage points (blue: GEO keeps more).",
+    "fig_transfer_suite_summary":
+        "Transfer across datasets, summary. For every source-target pair "
+        "(row) and task (column): each method's score when trained on the "
+        "target itself (dot) and when trained on the source and applied "
+        "zero-shot (ring), with the relative change; red marks a loss above "
+        "5\\%.",
     "fig_robust":
         "Robustness to rigid motions. Each model is trained once; the test set "
         "is then translated, rotated, or both, which changes no distance, "
@@ -239,6 +265,10 @@ def build_from(path: Path):
                 continue
         except Exception:
             continue
+        if kind == "transfer_suite":
+            from . import builders_transfer as T
+            TABLES.append(T.tex_transfer(data))
+            return T.fig_transfer(data)
         if kind == "robust":
             from . import builders_compare as C
             TABLES.append(C.tex_robust(data))

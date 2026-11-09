@@ -753,9 +753,9 @@ def fig_anomaly(res):
         ax2.set_ylabel("AUROC")
         ax2.legend(fontsize=6)
         ax2.set_title("Orientation control: both rotations move position "
-                      "equally, only 45$^\circ$ breaks grid alignment")
+                      "equally, only 45$^\\circ$ breaks grid alignment")
         fig2.text(0.01, -0.05,
-                  "Only a positive 45$^\circ$-minus-90$^\circ$ gap is evidence of "
+                  "Only a positive 45$^\\circ$-minus-90$^\\circ$ gap is evidence of "
                   "orientation sensitivity; a negative gap means the signal was "
                   "positional all along.", fontsize=6, color="0.3")
         fig2.tight_layout()
