@@ -438,10 +438,10 @@ combined = ["1:15", "10:30", "20:23", "80:41"]
 # tasks = ["similarity", "eta"]
 # kinds = ["lstm"]
 # fractions of the target's training split used for fine-tuning and for the from-scratch baseline (zero-shot is always run)
-# fractions = [0.01, 0.1, 1.0]
+fractions = [0, 0.01, 0.1, 0.5, 1.0]
 # GEO's channels on top of location + displacement for similarity (none: the odd/even protocol changes the sampling interval, which the speed channel encodes)
-# similarity_extras = "none"
-# similarity_metric = "KP@10"
+similarity_extras = "none"
+similarity_metric = "KP@10"
 # zero-shot: keep the SOURCE token standardisation instead of re-fitting it on the target's unlabelled tokens
 # no_adapt_norm = false
 # zero-shot also with GEO's frame left at the source city
@@ -449,9 +449,9 @@ combined = ["1:15", "10:30", "20:23", "80:41"]
 # n_train =
 # n_test = 2000
 # max_traj = 20000
-# epochs = 5
+epochs = 10
 # fine-tuning epochs (default: --epochs)
-# ft_epochs =
+ft_epochs = 1
 # bs = 128
 # lr = 0.001
 # fine-tuning learning rate (default: --lr)
