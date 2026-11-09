@@ -34,6 +34,18 @@ target's training trajectories. Mode transfer needs mode labels on two
 datasets with the same classes (GeoLife alone has them, so it is skipped
 unless you add another labelled corpus).
 
+Hyperparameter search (--search)
+    A source model must read the target with the same tokenizer, so GEO gets
+    ONE configuration per task and model, shared by every dataset. Each
+    candidate from [search_space] (same format as `search`) is trained on
+    every dataset's training split minus a validation part (`val_frac`,
+    user-disjoint where there are users) and scored on that part, in domain.
+    Scores are made comparable across datasets by dividing by the base
+    configuration's score on the same dataset (inverted for lower-is-better
+    metrics), and the candidate with the best mean ratio wins. Test sets are
+    never used. GPE is not searched. Files in <out>_search/: trials.jsonl
+    (resumable), search_results.csv, best_<task>_<model>.toml.
+
 Cost per task, model and seed: one training per dataset and method (also the
 in-domain reference), one per pair x fraction (fine-tuning), one per dataset x
 fraction below 100 % (from scratch).
@@ -265,6 +277,148 @@ def _mean(runs):
 
 
 # --------------------------------------------------------------------------
+# one GEO configuration per task and model, chosen across all datasets
+# --------------------------------------------------------------------------
+def search_shared(domains, kind, space, *, method, n_trials, search_seed,
+                  val_frac, search_epochs, search_seeds, sim_extras, cfg,
+                  log_path, setting, resume=True):
+    import json
+    from .exp_gpe_suite import geo_layout
+    from .exp_robust import holdout
+    from .exp_search import _invalid, _where, make_trials
+    base_hp = copy.deepcopy(_cfg.HP)
+    scfg = dict(cfg, epochs=search_epochs or cfg["epochs"])
+    vals = {}
+    for n, d in domains.items():
+        try:
+            vals[n] = Domain(n, holdout(d.task, val_frac, epochs=scfg["epochs"]))
+        except ValueError as e:
+            print(f"  search: {n} left out ({e})")
+    if not vals:
+        raise RuntimeError("no dataset could provide a validation split")
+    some = next(iter(vals.values())).task
+    m, hi = some.metric, some.higher
+    combos, total = make_trials(space, method, n_trials, search_seed)
+    signature = json.dumps({"setting": setting, "datasets": sorted(vals),
+                            "epochs": scfg["epochs"], "seeds": list(search_seeds),
+                            "val_frac": val_frac, "sim_extras": sim_extras,
+                            "n_val": {n: len(v.test) for n, v in vals.items()},
+                            "base": base_hp}, sort_keys=True, default=float)
+    done = {}
+    if resume and log_path.exists():
+        for line in open(log_path):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r.get("signature") == signature:
+                done[json.dumps(r["params"], sort_keys=True)] = r
+    print(f"  search ({setting}): {total} combination(s), running {len(combos)} + "
+          f"base on " + ", ".join(f"{n} {len(v.train)}/{len(v.test)}"
+                                  for n, v in vals.items())
+          + f" (train/validation); {m}" + (f"; {len(done)} already done" if done else ""))
+    trials = []
+    for i, params in enumerate([{}] + combos):
+        name = "base" if i == 0 else f"trial {i:03d}"
+        key = json.dumps(params, sort_keys=True)
+        if key in done:
+            trials.append(dict(done[key], name=name))
+            continue
+        hp = copy.deepcopy(base_hp)
+        for k, v in params.items():
+            hp[_where(k)][k] = v
+        rec = {"name": name, "params": params, "signature": signature}
+        bad = _invalid(hp)
+        if bad:
+            rec.update(status="invalid", reason=bad)
+        else:
+            rec["geo_layout"] = geo_layout(None, hp["encoders"])["text"]
+            t0 = time.perf_counter()
+            try:
+                per = {}
+                with using(hp):
+                    for n, v in vals.items():
+                        xs = []
+                        for sd in search_seeds:
+                            tok = _tok_for("geo", v, sim_extras)
+                            st = train(v, tok, v.subset(1.0, sd), kind, sd, scfg)
+                            xs.append(score(v, st, tok)[m])
+                        per[n] = float(np.mean(xs))
+                rec.update(status="ok", per_dataset=per)
+            except Exception as e:  # noqa: BLE001 - one bad trial must not end the search
+                import traceback
+                traceback.print_exc()
+                rec.update(status="failed", reason=f"{type(e).__name__}: {e}")
+            rec["seconds"] = round(time.perf_counter() - t0, 1)
+        with open(log_path, "a") as f:
+            f.write(json.dumps(rec, default=float) + "\n")
+        trials.append(rec)
+        if rec["status"] == "ok":
+            print(f"    [{name}] " + "  ".join(f"{n} {x:.4f}" for n, x in
+                                             rec["per_dataset"].items())
+                  + f"  ({rec['seconds']:.0f}s)  {params}")
+        else:
+            print(f"    [{name}] {rec['status']}: {rec.get('reason')}  {params}")
+    ok = [t for t in trials if t["status"] == "ok"]
+    if not ok:
+        raise RuntimeError(f"search ({setting}): no trial finished")
+    # reference per dataset: the base configuration (or the median trial)
+    base = next((t for t in ok if t["name"] == "base"), None)
+    ref = {n: (base["per_dataset"][n] if base else
+               float(np.median([t["per_dataset"][n] for t in ok]))) for n in vals}
+    for t in ok:
+        r = [(t["per_dataset"][n] / ref[n]) if hi else (ref[n] / t["per_dataset"][n])
+             for n in vals if ref[n] and t["per_dataset"][n]]
+        t["value"] = float(np.mean(r))
+    best = max(ok, key=lambda t: t["value"])
+    best_hp = copy.deepcopy(base_hp)
+    for k, v in best["params"].items():
+        best_hp[_where(k)][k] = v
+    print(f"  -> best {best['name']}: mean ratio to base {best['value']:.4f}  "
+          f"{best['params']}")
+    for t in trials:
+        t.pop("signature", None)
+    info = {"metric": m, "higher_is_better": hi, "selected_on":
+            "mean over datasets of validation score / base score",
+            "epochs": scfg["epochs"], "seeds": list(search_seeds),
+            "n_val": {n: len(v.test) for n, v in vals.items()},
+            "n_combinations": total, "reference": ref,
+            "best": {k: best.get(k) for k in ("name", "params", "value",
+                                               "per_dataset", "geo_layout")},
+            "trials": [{k: t.get(k) for k in ("name", "params", "status", "reason",
+                                                "value", "per_dataset", "geo_layout",
+                                                "seconds")} for t in trials]}
+    return best_hp, info
+
+
+def _write_search_files(search_dir, setting, info, base_config, best_hp):
+    import csv
+    import json
+    from .exp_search import _write_best
+    cfg = copy.deepcopy(base_config or {})
+    if isinstance(cfg.get("transfer_suite"), dict):
+        cfg["transfer_suite"].pop("search", None)   # the file runs the winner
+    _write_best(search_dir / f"best_{setting.replace('/', '_')}.toml",
+                cfg, best_hp, info["best"],
+                "mean validation score / base score")
+    path = search_dir / "search_results.csv"
+    names = sorted(info["reference"])
+    new = not path.exists()
+    with open(path, "a", newline="") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(["setting", "name", "status", "mean_ratio_to_base"]
+                       + [f"{info['metric']}_{n}" for n in names]
+                       + ["params", "geo_layout", "seconds"])
+        for t in info["trials"]:
+            pdv = t.get("per_dataset") or {}
+            w.writerow([setting, t["name"], t["status"], t.get("value")]
+                       + [pdv.get(n) for n in names]
+                       + [json.dumps(t["params"]), t.get("geo_layout", ""),
+                          t.get("seconds")])
+
+
+# --------------------------------------------------------------------------
 # entry point
 # --------------------------------------------------------------------------
 def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
@@ -272,8 +426,24 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
         fractions=(0.01, 0.1, 1.0), similarity_extras="none",
         similarity_metric="KP@10", adapt_norm=True, diagnostics=False,
         n_train=None, n_test=2000, max_traj=20000, epochs=5, ft_epochs=None,
-        bs=128, lr=1e-3, ft_lr=None, seeds=(0,), device="cpu", out=None):
+        bs=128, lr=1e-3, ft_lr=None, seeds=(0,), device="cpu", out=None,
+        search=False, space=None, base_config=None, search_method="grid",
+        n_trials=20, search_seed=0, search_epochs=None, search_seeds=(0,),
+        val_frac=0.2, search_dir=None, resume=True):
+    from pathlib import Path
     fractions = tuple(sorted({float(f) for f in fractions if f > 0}))
+    if search:
+        from .exp_search import _where, check_space
+        space = check_space(space or {})
+        if any(_where(k) == "model" for k in space):
+            print("  note: [search_space] has [model] keys; only GEO's model is "
+                  "tuned, GPE keeps the base architecture")
+        search_dir = Path(search_dir or (Path(out).with_suffix("").as_posix() + "_search"
+                                         if out else "results/transfer_search"))
+        search_dir.mkdir(parents=True, exist_ok=True)
+        if not resume:
+            (search_dir / "trials.jsonl").unlink(missing_ok=True)
+        (search_dir / "search_results.csv").unlink(missing_ok=True)
     if any(f > 1 for f in fractions):
         raise SystemExit("transfer_suite: fractions must be in (0, 1]")
     cfg = dict(epochs=epochs, ft_epochs=ft_epochs or epochs, bs=bs, lr=lr,
@@ -284,11 +454,10 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
                    else {"max_traj": max_traj}),
         required=1, what="transfer_suite")
     base_hp = copy.deepcopy(_cfg.HP)
-    geo_hp = base_hp                     # pass a tuned config with --config
     rows = [GPE_ROW, GEO_ROW] + ([DIAG_ROW] if diagnostics else [])
     res = {"transfer": True, "rows": rows, "tasks": list(tasks), "kinds": list(kinds),
            "fractions": list(fractions), "seeds": list(seeds),
-           "adapt_norm": bool(adapt_norm),
+           "adapt_norm": bool(adapt_norm), "search": bool(search),
            "methods": {GPE_ROW: "GPE as published: fixed frequency ladder on raw "
                                 "lon/lat, spatial only, no frame",
                        GEO_ROW: {t: describe_geo(t, similarity_extras) for t in tasks}},
@@ -319,9 +488,32 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
             print(f"[transfer] {tname} / {kind}: " + ", ".join(
                 f"{n} {len(d.train)}/{len(d.test)}" for n, d in domains.items())
                 + f"; GEO = {describe_geo(tname, similarity_extras)}")
+            geo_hp, info = base_hp, None
+            if search:
+                setting = f"{tname}/{kind}"
+                try:
+                    geo_hp, info = search_shared(
+                        domains, kind, space, method=search_method,
+                        n_trials=n_trials, search_seed=search_seed,
+                        val_frac=val_frac, search_epochs=search_epochs,
+                        search_seeds=search_seeds, sim_extras=similarity_extras,
+                        cfg=cfg, log_path=search_dir / "trials.jsonl",
+                        setting=setting, resume=resume)
+                    _write_search_files(search_dir, setting, info, base_config, geo_hp)
+                except RuntimeError as e:
+                    print(f"  !! search skipped for {setting}: {e}; using the base "
+                          "settings")
+                    info = {"error": str(e)}
             runs = [run_seed(domains, kind, s, cfg, base_hp, geo_hp, fractions,
                              similarity_extras, adapt_norm, diagnostics) for s in seeds]
             r = _mean(runs)
+            from .exp_gpe_suite import geo_layout
+            r["geo_layout"] = geo_layout(None, geo_hp["encoders"])["text"]
+            r["geo_settings"] = {k: v for sec in ("encoders", "model")
+                                 for k, v in geo_hp[sec].items()
+                                 if v != base_hp[sec].get(k)}
+            if info is not None:
+                r["search"] = info
             r.update(metric=some.metric, higher_is_better=some.higher,
                      datasets=list(domains),
                      n_train={n: len(d.train) for n, d in domains.items()},

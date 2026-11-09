@@ -522,6 +522,25 @@ def main(argv=None):
     ts.add_argument("--seeds", type=int, nargs="+", default=[0])
     ts.add_argument("--device", default="cpu")
     ts.add_argument("--out", default=None)
+    ts.add_argument("--search", action="store_true",
+                    help="tune GEO first: one configuration per task and model, "
+                         "shared by all datasets, chosen on validation splits "
+                         "(values to try: [search_space])")
+    ts.add_argument("--search-method", default="grid", choices=["grid", "random"])
+    ts.add_argument("--n-trials", type=int, default=20,
+                    help="number of combinations when search_method = random")
+    ts.add_argument("--search-seed", type=int, default=0)
+    ts.add_argument("--search-epochs", type=int, default=None,
+                    help="epochs per search trial (default: --epochs)")
+    ts.add_argument("--search-seeds", type=int, nargs="+", default=[0],
+                    help="seeds averaged inside each search trial")
+    ts.add_argument("--val-frac", type=float, default=0.2,
+                    help="share of each training split used for validation")
+    ts.add_argument("--search-dir", default=None,
+                    help="where trials.jsonl / search_results.csv / best_*.toml "
+                         "go (default: <out>_search)")
+    ts.add_argument("--no-resume", action="store_true",
+                    help="ignore search trials already in trials.jsonl")
 
     cfgp = sub.add_parser("config", help="write a commented config template "
                                          "listing every hyperparameter")
@@ -672,7 +691,12 @@ def _dispatch(args):
                    n_train=args.n_train, n_test=args.n_test, max_traj=args.max_traj,
                    epochs=args.epochs, ft_epochs=args.ft_epochs, bs=args.bs,
                    lr=args.lr, ft_lr=args.ft_lr, seeds=tuple(args.seeds),
-                   device=args.device, out=args.out)
+                   device=args.device, out=args.out, search=args.search,
+                   space=args._cfg.get("search_space"), base_config=args._cfg,
+                   search_method=args.search_method, n_trials=args.n_trials,
+                   search_seed=args.search_seed, search_epochs=args.search_epochs,
+                   search_seeds=tuple(args.search_seeds), val_frac=args.val_frac,
+                   search_dir=args.search_dir, resume=not args.no_resume)
 
     if args.cmd == "selfcheck":
         from .selfcheck import run as _sc
