@@ -459,6 +459,8 @@ epochs = 10
 # seeds = [0]
 # device = "cpu"
 # out =
+# also train fresh models on each fraction of the target (the from-scratch baseline; costs one training per dataset x fraction x method)
+# scratch = false
 # tune GEO first: one configuration per task and model, shared by all datasets, chosen on validation splits (values to try: [search_space])
 search = true
 search_method = "grid"

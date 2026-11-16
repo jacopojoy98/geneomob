@@ -522,6 +522,10 @@ def main(argv=None):
     ts.add_argument("--seeds", type=int, nargs="+", default=[0])
     ts.add_argument("--device", default="cpu")
     ts.add_argument("--out", default=None)
+    ts.add_argument("--scratch", action="store_true",
+                    help="also train fresh models on each fraction of the target "
+                         "(the from-scratch baseline; costs one training per "
+                         "dataset x fraction x method)")
     ts.add_argument("--search", action="store_true",
                     help="tune GEO first: one configuration per task and model, "
                          "shared by all datasets, chosen on validation splits "
@@ -672,7 +676,8 @@ def _dispatch(args):
                    similarity_extras=args.similarity_extras, n_train=args.n_train,
                    n_test=args.n_test, max_traj=args.max_traj, epochs=args.epochs,
                    bs=args.bs, lr=args.lr, seeds=tuple(args.seeds),
-                   device=args.device, out=args.out, search=args.search,
+                   device=args.device, out=args.out, scratch=args.scratch,
+                   search=args.search,
                    space=args._cfg.get("search_space"), base_config=args._cfg,
                    search_method=args.search_method, n_trials=args.n_trials,
                    search_seed=args.search_seed, search_epochs=args.search_epochs,

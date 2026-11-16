@@ -71,18 +71,23 @@ CAPTIONS = {
         "red marks a loss above 5\\%. A method that does not depend on where "
         "the city is has the two points on top of each other.",
     "fig_transfer_suite":
-        "Transfer across datasets. Rows are the target dataset, columns the "
-        "source. Each model is trained on the source; the leftmost point is "
-        "that model applied to the target without any target label "
-        "(zero-shot; GEO re-fits its frame on the target city, and both "
-        "methods re-fit their token standardisation on unlabelled target "
-        "data). Solid lines then fine-tune it on growing fractions of the "
-        "target's training data; dotted lines with hollow markers train a "
-        "fresh model on the same fraction, so the gap between the two is what "
-        "the source contributed. Thin dashed lines: trained on the whole "
-        "target. GPE (orange) is the published method, GEO (blue) uses every "
-        "channel the task allows; bands are $\\pm$1 standard deviation over "
-        "seeds.",
+        "Transfer across datasets. Rows are target datasets, panels are "
+        "source datasets. Left of the vertical rule: the model trained on the "
+        "target itself (in domain), the reference. Right of it: the model "
+        "trained on the source, applied to the target without any target "
+        "label (zero-shot), then fine-tuned on growing fractions of the "
+        "target's training data. GPE (orange, dotted, hollow) is the published "
+        "method on raw longitude and latitude; GEO (blue, solid, filled) uses "
+        "every channel the task allows and re-fits its frame on the target "
+        "city without labels. Bands and error bars: $\\pm$1 standard "
+        "deviation over seeds.",
+    "fig_transfer_suite_all":
+        "Transfer across datasets with the from-scratch baseline (appendix). "
+        "Rows are the target dataset, columns the source. Solid lines: source "
+        "model fine-tuned on growing fractions of the target; dotted lines "
+        "with hollow markers: a fresh model trained on the same fraction, so "
+        "the gap between the two is what the source contributed. Thin dashed "
+        "lines: trained on the whole target.",
     "fig_transfer_suite_matrix":
         "Zero-shot transfer: the share of the in-domain score that each method "
         "keeps when trained on the source (row) and applied to the target "

@@ -23,8 +23,8 @@ every model:
     fine-tuned    the source model trained further on a fraction of the
                   target's training split (`fractions`, e.g. 1 %, 10 %, 100 %);
                   travel times are standardised with that fraction's labels
-    from scratch  a fresh model trained on the same fraction of the target
-                  (the baseline that says whether the source helped at all)
+    from scratch  (only with --scratch) a fresh model trained on the same
+                  fraction of the target: says whether the source helped
 
 With --diagnostics the zero-shot step also reports GEO with its frame left at
 the source city (same model, no extra training).
@@ -180,17 +180,21 @@ def _tok_for(method, dom, sim_extras, src_tok=None, refit=True):
 
 
 def run_seed(domains, kind, seed, cfg, base_hp, geo_hp, fractions, sim_extras,
-             adapt_norm, diagnostics):
+             adapt_norm, diagnostics, scratch=False):
     rows = {"gpe": GPE_ROW, "geo": GEO_ROW}
     hp_of = {"gpe": base_hp, "geo": geo_hp}
     names = list(domains)
-    out = {"in_domain": {}, "scratch": {}, "pairs": {}}
+    out = {"in_domain": {}, "pairs": {}}
+    if scratch:
+        out["scratch"] = {}
     states, toks = {}, {}
     # 1) full training on every dataset: the source models and the in-domain
     #    references at once
     for n in names:
         dom = domains[n]
-        out["in_domain"][n], out["scratch"][n] = {}, {}
+        out["in_domain"][n] = {}
+        if scratch:
+            out["scratch"][n] = {}
         for m in ("gpe", "geo"):
             with using(hp_of[m]):
                 t0 = time.perf_counter()
@@ -198,17 +202,19 @@ def run_seed(domains, kind, seed, cfg, base_hp, geo_hp, fractions, sim_extras,
                 st = train(dom, tok, dom.subset(1.0, seed), kind, seed, cfg)
                 states[n, m], toks[n, m] = st, tok
                 out["in_domain"][n][rows[m]] = score(dom, st, tok)
-                # 2) from scratch on fractions of this dataset
-                out["scratch"][n][rows[m]] = []
-                for f in fractions:
-                    if f >= 1.0:
-                        out["scratch"][n][rows[m]].append(out["in_domain"][n][rows[m]])
-                        continue
-                    t2 = _tok_for(m, dom, sim_extras)
-                    s2 = train(dom, t2, dom.subset(f, seed), kind, seed, cfg)
-                    out["scratch"][n][rows[m]].append(score(dom, s2, t2))
+                # 2) optional baseline: from scratch on fractions of this dataset
+                if scratch:
+                    out["scratch"][n][rows[m]] = []
+                    for f in fractions:
+                        if f >= 1.0:
+                            out["scratch"][n][rows[m]].append(
+                                out["in_domain"][n][rows[m]])
+                            continue
+                        t2 = _tok_for(m, dom, sim_extras)
+                        s2 = train(dom, t2, dom.subset(f, seed), kind, seed, cfg)
+                        out["scratch"][n][rows[m]].append(score(dom, s2, t2))
             print(f"    {n:8s} {m}: in domain {_fmt(out['in_domain'][n][rows[m]], dom)}"
-                  f"  ({time.perf_counter() - t0:.0f}s with scratch runs)")
+                  f"  ({time.perf_counter() - t0:.0f}s)")
     # 3) every ordered pair
     for src in names:
         for dst in names:
@@ -427,6 +433,7 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
         similarity_metric="KP@10", adapt_norm=True, diagnostics=False,
         n_train=None, n_test=2000, max_traj=20000, epochs=5, ft_epochs=None,
         bs=128, lr=1e-3, ft_lr=None, seeds=(0,), device="cpu", out=None,
+        scratch=False,
         search=False, space=None, base_config=None, search_method="grid",
         n_trials=20, search_seed=0, search_epochs=None, search_seeds=(0,),
         val_frac=0.2, search_dir=None, resume=True):
@@ -458,6 +465,7 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
     res = {"transfer": True, "rows": rows, "tasks": list(tasks), "kinds": list(kinds),
            "fractions": list(fractions), "seeds": list(seeds),
            "adapt_norm": bool(adapt_norm), "search": bool(search),
+           "scratch": bool(scratch),
            "methods": {GPE_ROW: "GPE as published: fixed frequency ladder on raw "
                                 "lon/lat, spatial only, no frame",
                        GEO_ROW: {t: describe_geo(t, similarity_extras) for t in tasks}},
@@ -505,7 +513,8 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
                           "settings")
                     info = {"error": str(e)}
             runs = [run_seed(domains, kind, s, cfg, base_hp, geo_hp, fractions,
-                             similarity_extras, adapt_norm, diagnostics) for s in seeds]
+                             similarity_extras, adapt_norm, diagnostics, scratch)
+                    for s in seeds]
             r = _mean(runs)
             from .exp_gpe_suite import geo_layout
             r["geo_layout"] = geo_layout(None, geo_hp["encoders"])["text"]
