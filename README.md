@@ -315,7 +315,7 @@ ordered pair of the available datasets:
 | in domain | a model on the target's whole training split (the reference) | yes |
 | zero-shot | the source model, applied to the target's test split | **no** |
 | fine-tuned | the source model, trained further on `fractions` of the target's training split | that fraction |
-| from scratch | a fresh model on the same fraction of the target | that fraction |
+| from scratch (`--scratch` only) | a fresh model on the same fraction of the target | that fraction |
 
 Zero-shot uses no target label. The only adaptation is label-free:
 - GEO re-fits its frame on the target city.
@@ -324,9 +324,11 @@ Zero-shot uses no target label. The only adaptation is label-free:
   training tokens.
 - Travel times are read out on the source's label scale.
 
-The gap between "fine-tuned" and "from scratch" at the same fraction is what
-the source dataset contributed. `--diagnostics` adds GEO zero-shot with its
-frame left at the source city.
+By default only the two methods are run: GPE as published and GEO with its
+frame re-fitted on the target. `--scratch` adds the from-scratch baseline
+(the gap between "fine-tuned" and "from scratch" at the same fraction is what
+the source contributed); `--diagnostics` adds GEO zero-shot with its frame
+left at the source city.
 
 Tasks:
 - `similarity` and `eta` by default.
@@ -365,15 +367,20 @@ python -m geomob.cli transfer_suite --config geomob.toml --search --search-epoch
 Cost per task, model and seed:
 - one training per dataset and method (also the in-domain reference);
 - one per ordered pair x fraction (fine-tuning);
-- one per dataset x fraction below 100 % (from scratch).
+- with `--scratch`, one per dataset x fraction below 100 %.
 
-With 3 datasets and 3 fractions that is 6 + 18 + 6 = 30 trainings per method.
+With 3 datasets and 3 fractions that is 6 + 18 = 24 trainings per method
+(30 with `--scratch`).
 
 Figures:
-- **`fig_transfer_suite_<task>`**: rows = target, columns = source. Each panel
-  starts at zero-shot, then fine-tuning on growing fractions (solid, filled)
-  against from scratch (dotted, hollow). Thin dashed lines: in domain. The
-  diagonal panels show the target-only learning curve.
+- **`fig_transfer_suite_<task>`**: the layout of `fig_robust_<task>`. One row
+  per target, one panel per source (e.g. "porto → tdrive"). Left of the
+  vertical rule: the model trained on the target itself (in domain), like
+  "in place" in the robustness figure. Right of it: the source model on the
+  target, zero-shot and then fine-tuned on growing fractions. GPE orange,
+  dotted, hollow; GEO blue, solid, filled; bands ±1 std over seeds.
+- **`fig_transfer_suite_all_<task>`** (only with `--scratch`): the detailed
+  grid with the from-scratch baseline, for the appendix.
 - **`fig_transfer_suite_matrix`**: zero-shot retention, the % of the in-domain
   score kept, for every source x target, for GPE, for GEO and as GEO minus GPE.
 - **`fig_transfer_suite_summary`**: per pair and task, in domain (dot) vs

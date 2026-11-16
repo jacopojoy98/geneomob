@@ -1,6 +1,11 @@
 """Figures and tables for `transfer_suite` (train on one dataset, test on another).
 
-  fig_transfer_suite_<task>[_<model>]  rows = target, columns = source. In each
+  fig_transfer_suite_<task>[_<model>]  layout of fig_robust_<task>: one row
+                                 per target, one panel per source; left of
+                                 the rule the model trained on the target,
+                                 right of it zero-shot and fine-tuned.
+                                 GPE as published vs GEO (frame re-fitted)
+  fig_transfer_suite_all_<task>  (only with --scratch)  rows = target, columns = source. In each
                                  panel: zero-shot at the left, then fine-tuning
                                  on growing fractions of the target's training
                                  data (solid, filled) against training from
@@ -150,6 +155,85 @@ def _fig_curves(res, tname, kind, r):
 
 
 # --------------------------------------------------------------------------
+# 1b. main figure, in the layout of fig_robust_<task>
+# --------------------------------------------------------------------------
+MAIN = {GPE: dict(MAIN_STYLE["gpe_fixed"]), GEO: dict(MAIN_STYLE["geo_refit"])}
+MAIN_LABEL = {GPE: "GPE as published (raw lon/lat, spatial only)",
+              GEO: "GEO, all channels, frame re-fitted on the target city"}
+
+
+def _fig_main(res, tname, kind, r):
+    """One row per target, one panel per source. Left of the rule: the model
+    trained on the target itself (in domain); right of it: the source model
+    on the target, zero-shot and then fine-tuned on growing fractions of the
+    target's training data. Bands: +-1 std over seeds."""
+    names, m, hi = r["datasets"], r["metric"], r["higher_is_better"]
+    fr = r.get("fractions", res.get("fractions", []))
+    srcs = {t: [s for s in names if s != t and f"{s}\u2192{t}" in r["pairs"]]
+            for t in names}
+    targets = [t for t in names if srcs[t]]
+    ncol = max(len(v) for v in srcs.values())
+    fig, axes = plt.subplots(len(targets), ncol, squeeze=False,
+                             figsize=(WIDTH_2COL, 1.75 * len(targets) + 1.25),
+                             sharey="row")
+    x = np.arange(len(fr) + 1, dtype=float) + 1.0       # zero-shot, fractions
+    ticks = ["in\ndomain", "zero-\nshot"] + [f"{100 * f:g}%" for f in fr]
+    for i, dst in enumerate(targets):
+        ind = r["in_domain"][dst]
+        for j in range(ncol):
+            ax = axes[i][j]
+            if j >= len(srcs[dst]):
+                ax.axis("off")
+                continue
+            src = srcs[dst][j]
+            pr = r["pairs"][f"{src}\u2192{dst}"]
+            for k, row in enumerate((GPE, GEO)):
+                st = dict(MAIN[row])
+                mfc = st.pop("mfc", st["color"])
+                cells = [pr["zero_shot"][row]] + list(pr["finetune"][row])
+                y = np.array([c[m] for c in cells])
+                ax.plot(x, y, ms=3.6, label=MAIN_LABEL[row], mfc=mfc,
+                        mec=st["color"], mew=0.9, zorder=3, **st)
+                if m + "_std" in cells[0]:
+                    e = np.array([c.get(m + "_std", 0.0) for c in cells])
+                    ax.fill_between(x, y - e, y + e, color=st["color"], alpha=0.13,
+                                    lw=0, zorder=1)
+                c0 = ind[row]                         # trained on the target
+                ax.errorbar([(k - 0.5) * 0.12], [c0[m]], yerr=[c0.get(m + "_std", 0.0)],
+                            fmt=st["marker"], ms=4.2, color=st["color"], mfc=mfc,
+                            mec=st["color"], mew=0.9, capsize=1.5, elinewidth=0.8,
+                            zorder=4)
+            ax.axvline(0.5, color="0.6", lw=0.6)
+            ax.set_xlim(-0.6, len(fr) + 1.5)
+            ax.set_xticks(np.r_[0.0, x])
+            ax.set_xticklabels(ticks, fontsize=6)
+            ax.grid(axis="y", color="0.9", lw=0.5)
+            ax.set_axisbelow(True)
+            ax.set_title(f"{src} \u2192 {dst}", fontsize=7.5)
+            if i == len(targets) - 1:
+                ax.set_xlabel("target training data used for fine-tuning", fontsize=6)
+            if j == 0:
+                arrow = r"$\uparrow$" if hi else r"$\downarrow$"
+                ax.set_ylabel(f"target: {dst}\n{m}{UNITS.get(m, '')} {arrow}",
+                              fontsize=6.5)
+    h_, l_ = axes[0][0].get_legend_handles_labels()
+    ns = _ns(res)
+    t = TASK_NAME.get(tname, tname).replace(" (control)", "")
+    fig.suptitle(f"Transfer across datasets, {t} ({kind}): trained on the source city"
+                 + (f"  ({ns} seeds, band $\\pm$1 std)" if ns > 1 else ""),
+                 fontsize=8.5)
+    H = fig.get_figheight()
+    fig.texts[-1].set_y(1 - 0.08 / H)
+    fig.texts[-1].set_va("top")
+    fig.tight_layout()
+    fig.subplots_adjust(top=1 - 0.80 / H)
+    fig.legend(h_, l_, loc="upper center", ncol=2, fontsize=6.4, frameon=False,
+               bbox_to_anchor=(0.5, 1 - 0.30 / H), handlelength=3.4,
+               columnspacing=2.5)
+    return fig
+
+
+# --------------------------------------------------------------------------
 # 2. retention matrices
 # --------------------------------------------------------------------------
 def fig_transfer_matrix(res):
@@ -254,8 +338,11 @@ def fig_transfer(res):
     figs = []
     multi = len(res.get("kinds", [])) > 1
     for tname, kind, r in _items(res):
-        name = f"fig_transfer_suite_{tname}" + (f"_{kind}" if multi else "")
-        figs.append((name, _fig_curves(res, tname, kind, r)))
+        sfx = f"{tname}" + (f"_{kind}" if multi else "")
+        figs.append((f"fig_transfer_suite_{sfx}", _fig_main(res, tname, kind, r)))
+        if any(r.get("scratch", {}).values()):     # with the from-scratch baseline
+            figs.append((f"fig_transfer_suite_all_{sfx}",
+                         _fig_curves(res, tname, kind, r)))
     for f in (fig_transfer_matrix(res), fig_transfer_summary(res)):
         if f:
             figs.append(f)
@@ -270,7 +357,12 @@ def tex_transfer(res):
     for tname, kind, r in _items(res):
         m, hi = r["metric"], r["higher_is_better"]
         fr = r.get("fractions", res["fractions"])
+        has_sc = any(r.get("scratch", {}).values())
         fcols = " & ".join(f"{100 * f:g}\\%" for f in fr)
+        blocks = [("Fine-tuned", fcols)] + ([("Scratch", fcols)] if has_sc else [])
+        blocks = [b for b in blocks if fr]
+        head = "".join(rf" & \multicolumn{{{len(fr)}}}{{c}}{{{b}}}" for b, _ in blocks)
+        sub = "".join(f" & {c}" for _, c in blocks)
         lines = [r"\begin{table}[t]", r"\centering",
                  rf"\caption{{Transfer across datasets, {_tx(tname)} ({kind}, "
                  rf"{_tx(m)}, {'higher' if hi else 'lower'} is better). In domain: "
@@ -280,22 +372,24 @@ def tex_transfer(res):
                  r"of the target's training data. $\Delta$: zero-shot against in "
                  r"domain (negative = worse).}",
                  r"\small",
-                 rf"\begin{{tabular}}{{ll rr r {'r' * len(fr)} {'r' * len(fr)}}}",
+                 rf"\begin{{tabular}}{{ll rr r{'r' * len(fr) * len(blocks)}}}",
                  r"\toprule",
-                 rf"Source$\to$target & Method & In domain & Zero-shot & $\Delta$ (\%) & "
-                 rf"\multicolumn{{{len(fr)}}}{{c}}{{Fine-tuned}} & "
-                 rf"\multicolumn{{{len(fr)}}}{{c}}{{Scratch}} \\",
-                 rf" & & & & & {fcols} & {fcols} \\", r"\midrule"]
+                 rf"Source$\to$target & Method & In domain & Zero-shot & $\Delta$ (\%)"
+                 + head + r" \\"]
+        if blocks:
+            lines.append(rf" & & & & {sub} \\")
+        lines += [r"\midrule"]
         for key, pr in r["pairs"].items():
             for i, row in enumerate((GEO, GPE)):
                 ind = r["in_domain"][pr["dst"]][row][m]
                 zs = pr["zero_shot"][row][m]
                 ch = _change_pct(ind, zs, hi)
-                ft = " & ".join(f"{c[m]:.3f}" for c in pr["finetune"][row])
-                sc = " & ".join(f"{c[m]:.3f}" for c in r["scratch"][pr["dst"]][row])
+                cols = [f"{c[m]:.3f}" for c in pr["finetune"][row]]
+                if has_sc:
+                    cols += [f"{c[m]:.3f}" for c in r["scratch"][pr["dst"]][row]]
                 lines.append((f"{_tx(pr['src'])}$\\to${_tx(pr['dst'])}" if i == 0 else "")
                              + f" & {_tx(SHORT[row])} & {ind:.3f} & {zs:.3f} & "
-                             + f"{ch:+.1f} & {ft} & {sc}" + r" \\")
+                             + f"{ch:+.1f}" + "".join(f" & {c}" for c in cols) + r" \\")
             lines.append(r"\midrule")
         lines[-1] = r"\bottomrule"
         lines += [r"\end{tabular}", r"\end{table}", ""]
