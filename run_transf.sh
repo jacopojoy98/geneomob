@@ -1,7 +1,7 @@
 set -e
 source ../.geneomob/bin/activate
 
-export N_EXP="transf2"
+export N_EXP="transf3"
 export DATA_PORTO=~/data/Porto/train.csv        # Kaggle taxi trajectory, POLYLINE column
 export DATA_TDRIVE=~/data/TDrive/release/taxi_log_2008_by_id
 export DATA_GEOLIFE=~/data/Geolife/Data
@@ -10,5 +10,5 @@ OUT=/home/jcolombini/results/$N_EXP
 mkdir -p "$OUT"
 
 #python -m geomob.cli robust --config geomob.toml --seeds 0 1 2 --out results/robust.json
-python -m geomob.cli transfer_suite --config geomob.toml --similarity-extras none --search --seeds 0 1 2  --out $OUT/transf.json   # tune GEO first
+python -m geomob.cli transfer_suite --config geomob.toml --similarity-extras none --search --seeds 0  --out $OUT/transf.json   # tune GEO first
 python -m geomob.figures $OUT/transf.json -o $OUT/figures
