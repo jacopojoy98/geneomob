@@ -29,6 +29,10 @@ every model:
 With --diagnostics the zero-shot step also reports GEO with its frame left at
 the source city (same model, no extra training).
 
+With --ablations drop|only|both, GEO is also trained with channels removed
+(see geomob.ablation): one in-domain training per dataset and variant, scored
+in domain and zero-shot on every pair (no fine-tuning for the variants).
+
 Similarity needs no labels, so a "fraction" there is a fraction of the
 target's training trajectories. Mode transfer needs mode labels on two
 datasets with the same classes (GeoLife alone has them, so it is skipped
@@ -171,18 +175,29 @@ def _tok_for(method, dom, sim_extras, src_tok=None, refit=True):
     possibly learned) with its frame re-fitted on dom's city."""
     if src_tok is not None:
         t = copy.deepcopy(src_tok)
-        if method == "geo" and refit:
+        if method != "gpe" and refit:           # GEO and its ablations
             t.refit(dom.city)
         return t
-    t = gpe_paper() if method == "gpe" else geo_full(dom.task.name, sim_extras)
+    if method == "gpe":
+        t = gpe_paper()
+    elif method.startswith("abl:"):
+        from .exp_robust import ablate
+        t = ablate(geo_full(dom.task.name, sim_extras), method[4:])
+    else:
+        t = geo_full(dom.task.name, sim_extras)
     t.fit(dom.city)
     return t
 
 
 def run_seed(domains, kind, seed, cfg, base_hp, geo_hp, fractions, sim_extras,
-             adapt_norm, diagnostics, scratch=False):
+             adapt_norm, diagnostics, scratch=False, ablations="none"):
+    from .exp_robust import ablation_row, ablation_variants
     rows = {"gpe": GPE_ROW, "geo": GEO_ROW}
     hp_of = {"gpe": base_hp, "geo": geo_hp}
+    some = next(iter(domains.values())).task.name
+    abl = [f"abl:{vk}" for vk in ablation_variants(some, sim_extras, ablations, geo_hp)]
+    for m in abl:                       # in domain + zero-shot only
+        rows[m], hp_of[m] = ablation_row(m[4:]), geo_hp
     names = list(domains)
     out = {"in_domain": {}, "pairs": {}}
     if scratch:
@@ -195,7 +210,7 @@ def run_seed(domains, kind, seed, cfg, base_hp, geo_hp, fractions, sim_extras,
         out["in_domain"][n] = {}
         if scratch:
             out["scratch"][n] = {}
-        for m in ("gpe", "geo"):
+        for m in ("gpe", "geo", *abl):
             with using(hp_of[m]):
                 t0 = time.perf_counter()
                 tok = _tok_for(m, dom, sim_extras)
@@ -203,7 +218,7 @@ def run_seed(domains, kind, seed, cfg, base_hp, geo_hp, fractions, sim_extras,
                 states[n, m], toks[n, m] = st, tok
                 out["in_domain"][n][rows[m]] = score(dom, st, tok)
                 # 2) optional baseline: from scratch on fractions of this dataset
-                if scratch:
+                if scratch and m in ("gpe", "geo"):
                     out["scratch"][n][rows[m]] = []
                     for f in fractions:
                         if f >= 1.0:
@@ -240,6 +255,11 @@ def run_seed(domains, kind, seed, cfg, base_hp, geo_hp, fractions, sim_extras,
                         ft = train(T, tok, T.subset(f, seed), kind, seed, cfg,
                                    init=states[src, m], adapt_norm=adapt_norm)
                         pr["finetune"][rows[m]].append(score(T, ft, tok))
+            for m in abl:                       # ablations: zero-shot only
+                with using(hp_of[m]):
+                    tok = _tok_for(m, T, sim_extras, src_tok=toks[src, m])
+                    st = dict(states[src, m], _foreign=True)
+                    pr["zero_shot"][rows[m]] = score(T, st, tok, adapt_norm)
             out["pairs"][key] = pr
             print(f"    {key:18s} zero-shot  GPE {_fmt(pr['zero_shot'][GPE_ROW], T)}"
                   f"  GEO {_fmt(pr['zero_shot'][GEO_ROW], T)}   | fine-tuned "
@@ -248,6 +268,8 @@ def run_seed(domains, kind, seed, cfg, base_hp, geo_hp, fractions, sim_extras,
                               for i, f in enumerate(fractions)))
     out["token_dims"] = {GPE_ROW: toks[names[0], "gpe"].dim,
                          GEO_ROW: toks[names[0], "geo"].dim}
+    if abl:
+        out["ablation_rows"] = [rows[m] for m in abl]
     return out
 
 
@@ -433,7 +455,7 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
         similarity_metric="KP@10", adapt_norm=True, diagnostics=False,
         n_train=None, n_test=2000, max_traj=20000, epochs=5, ft_epochs=None,
         bs=128, lr=1e-3, ft_lr=None, seeds=(0,), device="cpu", out=None,
-        scratch=False,
+        scratch=False, ablations="none",
         search=False, space=None, base_config=None, search_method="grid",
         n_trials=20, search_seed=0, search_epochs=None, search_seeds=(0,),
         val_frac=0.2, search_dir=None, resume=True):
@@ -462,10 +484,15 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
         required=1, what="transfer_suite")
     base_hp = copy.deepcopy(_cfg.HP)
     rows = [GPE_ROW, GEO_ROW] + ([DIAG_ROW] if diagnostics else [])
+    from .exp_robust import ablation_row, ablation_variants
+    for t in tasks:
+        for vk in ablation_variants(t, similarity_extras, ablations):
+            if ablation_row(vk) not in rows:
+                rows.append(ablation_row(vk))
     res = {"transfer": True, "rows": rows, "tasks": list(tasks), "kinds": list(kinds),
            "fractions": list(fractions), "seeds": list(seeds),
            "adapt_norm": bool(adapt_norm), "search": bool(search),
-           "scratch": bool(scratch),
+           "scratch": bool(scratch), "ablations": ablations,
            "methods": {GPE_ROW: "GPE as published: fixed frequency ladder on raw "
                                 "lon/lat, spatial only, no frame",
                        GEO_ROW: {t: describe_geo(t, similarity_extras) for t in tasks}},
@@ -513,7 +540,8 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
                           "settings")
                     info = {"error": str(e)}
             runs = [run_seed(domains, kind, s, cfg, base_hp, geo_hp, fractions,
-                             similarity_extras, adapt_norm, diagnostics, scratch)
+                             similarity_extras, adapt_norm, diagnostics, scratch,
+                             ablations)
                     for s in seeds]
             r = _mean(runs)
             from .exp_gpe_suite import geo_layout
@@ -547,3 +575,20 @@ def _summary(res):
                 print(f"  {key:18s} " + "   ".join(
                     f"{row}: {ind[row][m]:.3f} -> {pr['zero_shot'][row][m]:.3f}"
                     for row in (GPE_ROW, GEO_ROW)))
+            abl = [row for row in res.get("rows", []) if row.startswith(GEO_ROW + " ")
+                   and row in next(iter(r["in_domain"].values()))]
+            if not abl:
+                continue
+            print(f"  channel ablation, % change from {GEO_ROW} (negative = worse):")
+
+            def pct(v, f):
+                return 100 * ((v - f) if hi else (f - v)) / max(abs(f), 1e-12)
+            cols = list(r["in_domain"]) + list(r["pairs"])
+            print(f"    {'':26s}" + "".join(f"{c:>16s}" for c in cols))
+            for row in abl:
+                vals = [pct(r["in_domain"][d][row][m], r["in_domain"][d][GEO_ROW][m])
+                        for d in r["in_domain"]]
+                vals += [pct(pr["zero_shot"][row][m], pr["zero_shot"][GEO_ROW][m])
+                         for pr in r["pairs"].values()]
+                print(f"    {row[len(GEO_ROW):].strip():26s}"
+                      + "".join(f"{v:+16.1f}" for v in vals))

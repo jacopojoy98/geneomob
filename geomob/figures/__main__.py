@@ -70,6 +70,30 @@ CAPTIONS = {
         "its worst score over all moves (hollow), with the relative change; "
         "red marks a loss above 5\\%. A method that does not depend on where "
         "the city is has the two points on top of each other.",
+    "fig_ablation_indomain":
+        "Channel ablation in domain. Each cell is the change of the task "
+        "metric when one channel is removed from GEO (rows starting with "
+        "a minus sign) or when GEO keeps only that channel, relative to GEO "
+        "with every channel, in percent and signed so that negative means "
+        "worse: red rows are channels the task relies on. Every variant "
+        "computes the full token and drops the columns of the removed "
+        "channels, so the remaining channels are exactly those of the full "
+        "model. Second line: one standard deviation over seeds of the paired "
+        "change. n/a: the task's GEO has no such channel (no speed for "
+        "travel-time estimation, no time or speed for similarity).",
+    "fig_ablation_robust":
+        "Channel ablation under translations and rotations. Left: change "
+        "on the untransformed test set; right: change of the worst score "
+        "over every transformation. When the whole city is moved, every GEO "
+        "variant re-fits its frame and is invariant by construction, so the "
+        "two sides agree; when trips are moved one by one, the right side "
+        "shows which channels survive without a common frame.",
+    "fig_ablation_transfer":
+        "Channel ablation across datasets. Left: change in domain (trained "
+        "and tested on the same dataset); right: change zero-shot (trained "
+        "on the source, applied to the target with the frame re-fitted and "
+        "no target labels). A channel that helps in domain but hurts "
+        "zero-shot is one the model uses to memorise the training city.",
     "fig_transfer_suite":
         "Transfer across datasets. Rows are target datasets, panels are "
         "source datasets. Left of the vertical rule: the model trained on the "
@@ -271,13 +295,19 @@ def build_from(path: Path):
         except Exception:
             continue
         if kind == "transfer_suite":
+            from . import builders_ablation as A
             from . import builders_transfer as T
             TABLES.append(T.tex_transfer(data))
-            return T.fig_transfer(data)
+            TABLES.append(A.tex_ablation(A.transfer_panels(data),
+                                         "Channel ablation across datasets,"))
+            return T.fig_transfer(data) + A.fig_ablation_transfer(data)
         if kind == "robust":
+            from . import builders_ablation as A
             from . import builders_compare as C
             TABLES.append(C.tex_robust(data))
-            return C.fig_robust(data)
+            TABLES.append(A.tex_ablation(A.robust_panels(data),
+                                         "Channel ablation under rigid motions,"))
+            return C.fig_robust(data) + A.fig_ablation_robust(data)
         if kind == "relocate":
             from . import builders_compare as C
             TABLES.append(C.tex_relocate(data))

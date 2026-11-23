@@ -155,6 +155,7 @@ geo_loc_dims = [108, 112,116, 124]   # location share of h; 124 = no radial part
 [downstream]
 # dataset = "geolife"
 # path =
+# similarity (GPE's local protocol) runs only when listed
 # tasks = ["tul", "eta", "mode", "anomaly"]
 # encoders = ["gpe", "gpe_ts", "geo", "geo_ts"]
 # backbones = ["lstm", "transformer"]
@@ -175,6 +176,10 @@ geo_loc_dims = [108, 112,116, 124]   # location share of h; 124 = no radial part
 # z_dim = 16
 # anomaly: neighbours for the latent kNN score
 # k = 10
+# similarity: number of test trajectories
+# sim_n_test = 2000
+# channel ablation of GEO with every channel (geo_ts): drop = leave one channel out, only = one channel alone; results go under 'ablation' in the results file
+# ablations = "none"
 # device = "cpu"
 # out =
 
@@ -400,6 +405,8 @@ angles = [5.0, 15.0, 23.0, 30.0, 45.0]
 combined = ["1:15", "10:30", "20:23", "80:41"]
 # city scope: direction of the translations (degrees from east)
 # direction_deg = 0.0
+# also train GEO with channels removed: drop = leave one out, only = one channel alone (one training per variant)
+# ablations = "none"
 # add GEO with its frame NOT re-fitted, and GPE in GEO's frame (one extra training)
 # diagnostics = false
 # GEO's channels on top of location + displacement for similarity (time is off by default: the two halves of a trip share their timestamps)
@@ -459,6 +466,8 @@ epochs = 10
 # seeds = [0]
 # device = "cpu"
 # out =
+# also train GEO with channels removed (in domain and zero-shot; one training per dataset and variant)
+# ablations = "none"
 # also train fresh models on each fraction of the target (the from-scratch baseline; costs one training per dataset x fraction x method)
 # scratch = false
 # tune GEO first: one configuration per task and model, shared by all datasets, chosen on validation splits (values to try: [search_space])

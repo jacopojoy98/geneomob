@@ -13,6 +13,7 @@ from .style import (GREY, HATCHES, MARKERS, PALETTE, WIDTH_2COL,
                     annotate_bars, color_for, shorten)
 
 TASK_METRICS = {                     # headline, secondary, higher-is-better
+    "similarity": ("KP@10", "MRR", True),
     "tul": ("acc@1", "macro_F1", True),
     "eta": ("MAE", "MAPE", False),
     "mode": ("macro_F1", "acc@1", True),
@@ -66,7 +67,8 @@ def fig_downstream(res):
                 arrow = r"$\downarrow$"
             ax.set_ylabel(metric + UNITS.get(metric, "") + " " + arrow)
             ax.legend(fontsize=6, title="backbone", title_fontsize=6)
-        axes[0].set_title({"tul": "Trajectory-user linking",
+        axes[0].set_title({"similarity": "Trajectory similarity",
+                           "tul": "Trajectory-user linking",
                            "eta": "Travel-time estimation",
                            "mode": "Transportation-mode detection"}[task]
                           + f" ({res.get('dataset', '')})")
@@ -407,17 +409,19 @@ def tex_downstream(res):
         if task == "anomaly":
             continue
         head, sec, higher = TASK_METRICS[task]
-        metrics = {"tul": ["acc@1", "acc@5", "macro_P", "macro_R", "macro_F1"],
+        metrics = {"similarity": ["MR", "MRR", "MP", "KP@10"],
+                   "tul": ["acc@1", "acc@5", "macro_P", "macro_R", "macro_F1"],
                    "eta": ["MAE", "RMSE", "MAPE"],
                    "mode": ["acc@1", "macro_P", "macro_R", "macro_F1"]}[task]
-        lower = {"MAE", "RMSE", "MAPE"}
+        lower = {"MAE", "RMSE", "MAPE", "MR"}
         cells = []
         for key, bb in d["results"].items():
             for kind, v in bb.items():
                 cells.append((res["encoders"][key], kind, v))
         best = {m: (min if m in lower else max)(c[2].get(m, np.nan) for c in cells)
                 for m in metrics}
-        title = {"tul": "Trajectory-user linking",
+        title = {"similarity": "Trajectory similarity",
+                 "tul": "Trajectory-user linking",
                  "eta": "Travel-time estimation (minutes)",
                  "mode": "Transportation-mode detection"}[task]
         lines = [r"\begin{table}[t]", r"\centering",

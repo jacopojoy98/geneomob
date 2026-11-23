@@ -101,7 +101,13 @@ class FrontEnd(nn.Module):
                            * (v >= 0).unsqueeze(-1).float())
             else:
                 out.append(x[..., a:b])
-        return torch.cat(out, -1)
+        out = torch.cat(out, -1)
+        keep = getattr(self, "keep_idx", None)
+        return out if keep is None else out[..., keep]
+
+    def set_keep(self, idx):
+        """Channel ablation: keep only these output columns (see ablation.py)."""
+        self.register_buffer("keep_idx", torch.as_tensor(idx, dtype=torch.long))
 
     def wavelengths(self, unit_scale=None):
         """Current wavelengths per bank (metres; radians x R for GPE)."""

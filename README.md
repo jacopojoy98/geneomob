@@ -391,6 +391,73 @@ Figures:
 similarity-only MRR matrix with spatial GEO. `transfer_suite` is the full
 comparison.
 
+## Channel ablation: which channel matters for which task (`--ablations`)
+
+`downstream`, `robust` and `transfer_suite` all take
+`--ablations none|drop|only|both` (default `none`):
+
+- `drop`: GEO with one channel left out ("GEO (full) − location", ...)
+- `only`: GEO with one channel alone ("GEO (full): location only", ...)
+- `both`: all of the above
+
+The channels are location, step length (radial), heading (angular), speed
+and time. Only the channels the task's GEO has are ablated: travel-time
+estimation has no speed (and time is the departure time only); similarity
+has no time and no speed (unless `robust`/`transfer_suite` are given
+`--similarity-extras`).
+
+An ablated GEO computes the full token as usual (same frame, same
+wavelengths, same speed and displacement computation) and then drops the
+columns of the removed channel, so every remaining channel is exactly what
+the full model sees. With learned wavelengths the columns are dropped inside
+the model, after the front end. Each variant is a separate training run.
+
+```bash
+# in domain, every task
+python -m geomob.cli downstream --config geomob.toml --dataset porto \
+    --tasks similarity tul eta mode anomaly --encoders gpe geo_ts --ablations drop
+
+# robustness: use --scope trip (see below)
+python -m geomob.cli robust --config geomob.toml --scope trip --ablations drop
+
+# transfer: in domain and zero-shot (no fine-tuning, no from-scratch)
+python -m geomob.cli transfer_suite --config geomob.toml --ablations drop
+```
+
+Two things to know when reading the results:
+
+- **`robust` in city scope repeats the in-place result.** There GEO's frame
+  is re-fitted on the moved city, so every GEO variant is invariant by
+  construction and its numbers along each transformation equal its in-place
+  numbers. The informative robustness ablation is `--scope trip` (each trip
+  moved on its own): it shows which channels carry the sensitivity to
+  absolute position and orientation (on the fixtures, removing location makes
+  GEO insensitive to translation, as it should).
+- **In `transfer_suite`, compare the in-domain and zero-shot columns.** A
+  channel that helps in domain but hurts zero-shot is learning the source
+  city rather than something that transfers.
+
+The ablation runs on `geo_ts` (GEO with time and speed, where the task
+allows them) in `downstream`, and on "GEO (full)" in the other two, with the
+searched settings when `--search` is on. The console summary prints the %
+change from the full GEO per variant (negative = worse, whatever the metric's
+direction).
+
+Figures (written by `python -m geomob.figures <results>.json`):
+
+- **`fig_ablation_indomain`**: one heatmap per task, rows = variants,
+  columns = datasets (and backbones), cell = % change from the full GEO,
+  ±1 std over seeds (paired per seed when there are several). Pass several
+  `downstream` result files together to get one column per dataset.
+- **`fig_ablation_robust`**: per task, in place vs the worst value over every
+  move.
+- **`fig_ablation_transfer`**: per task, in domain per dataset vs zero-shot
+  per source→target pair.
+- A "Channel ablation" table per figure in `tables.tex`.
+
+The main figures (`fig_robust_*`, `fig_transfer_suite_*`, `fig_downstream_*`)
+keep showing GPE against the full GEO only.
+
 ## Results per dataset, and critical-difference diagrams
 
 `run_all` now runs the downstream tasks on **every available dataset**, not
