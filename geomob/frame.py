@@ -86,6 +86,41 @@ def geometric_median(ll, iters=1000, tol_m=1e-5):
     return enu_to_lonlat(z[None, :], ref)[0]
 
 
+def nearest_anchor(lonlat):
+    """(name, (lon, lat)) of the city anchor within `frame_anchor_radius_km`
+    of `lonlat`, or (None, None)."""
+    anchors = dict(CITY_ANCHORS)
+    anchors.update({k: tuple(v) for k, v in (_hp().get("frame_anchors") or {}).items()})
+    radius = float(_hp().get("frame_anchor_radius_km", 75.0))
+    p = np.asarray(lonlat, dtype=np.float64)
+    name, at = min(anchors.items(), key=lambda kv: _haversine_km(p, np.asarray(kv[1])))
+    if _haversine_km(p, np.asarray(at)) <= radius:
+        return name, np.asarray(at, dtype=np.float64)
+    return None, None
+
+
+def median_step_m(trajs, ref=None, min_step_m=1.0, max_steps=200_000):
+    """Median length (m) of the steps between consecutive points of a corpus,
+    ignoring steps shorter than `min_step_m` (GPS dwell). It scales with the
+    sampling interval and with the size of the city, and is unchanged by
+    rigid motions; None if the corpus has no step."""
+    ll = [t.lonlat for t in trajs if len(t.lonlat) > 1]
+    if not ll:
+        return None
+    ref = np.asarray(ref if ref is not None else np.median(np.vstack(ll), 0))
+    rs, n = [], 0
+    for x in ll:
+        d = np.diff(lonlat_to_enu(x, ref)[0], axis=0)
+        r = np.hypot(d[:, 0], d[:, 1])
+        r = r[r >= min_step_m]
+        rs.append(r)
+        n += len(r)
+        if n >= max_steps:
+            break
+    r = np.concatenate(rs) if rs else np.empty(0)
+    return float(np.median(r)) if len(r) else None
+
+
 def fit_origin(trajs_or_points, rule=None):
     """The frame origin (lon, lat) under the configured rule."""
     ll = _points(trajs_or_points)
@@ -96,12 +131,10 @@ def fit_origin(trajs_or_points, rule=None):
     if rule == "median":
         return med
     if rule == "anchor":
-        anchors = dict(CITY_ANCHORS)
-        anchors.update({k: tuple(v) for k, v in (_hp().get("frame_anchors") or {}).items()})
+        name, at = nearest_anchor(med)
+        if name is not None:
+            return at
         radius = float(_hp().get("frame_anchor_radius_km", 75.0))
-        best = min(anchors.items(), key=lambda kv: _haversine_km(med, np.asarray(kv[1])))
-        if _haversine_km(med, np.asarray(best[1])) <= radius:
-            return np.asarray(best[1], dtype=np.float64)
         key = (round(float(med[0]), 1), round(float(med[1]), 1))
         if key not in _warned:
             _warned.add(key)

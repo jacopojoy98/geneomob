@@ -251,7 +251,8 @@ class LearnableGEO:
             d = np.diff(xy, axis=0)
             if self.learn_disp:
                 code = self.disp.encode_disp(d)
-                r = np.linalg.norm(d, axis=1)[:, None]
+                r = (np.linalg.norm(d, axis=1)
+                     * getattr(self.disp, "step_scale", 1.0))[:, None]
                 block = np.concatenate([r, code[:, self.disp.n_inv:]], 1)
                 first = np.zeros((1, block.shape[1]))
                 first[0, 0] = -1.0              # no step before the first point

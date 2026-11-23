@@ -72,21 +72,36 @@ SWEEPS = ("latitude", "rotation", "translation")
 # canonical frame
 # --------------------------------------------------------------------------
 class CanonicalFrame:
-    """Origin = centroid of the point cloud; x-axis = its first principal
-    axis, pointed towards the heavier tail (third moment) so the 180-degree
-    ambiguity is resolved from the data alone. Fitted without labels."""
+    """Origin and orientation of a corpus, fitted without labels, plus the
+    median step length (the scale of its sampling).
+
+    `origin=None` follows [encoders] frame_origin, except that "anchor" is
+    read as "median": a fixed city anchor does not move with a moved city
+    (robust / relocate). `origin="anchor"` really uses the anchor (transfer
+    across datasets: the frame belongs to the city, not to the corpus)."""
+
+    def __init__(self, origin=None):
+        self.origin = origin
+        self.anchor = None          # name of the city anchor used, if any
+        self.step_m = None          # median step length of the corpus
 
     def fit(self, trajs):
-        # origin: the configured rule, except that a fixed city anchor makes
-        # no sense for a city that has been moved, so "anchor" means median
         from ..config import HP
-        from ..frame import fit_orientation, fit_origin
-        rule = HP["encoders"].get("frame_origin", "mean")
-        self.ref = fit_origin(trajs, "median" if rule == "anchor" else rule)
+        from ..frame import fit_orientation, fit_origin, median_step_m, nearest_anchor
+        rule = self.origin or HP["encoders"].get("frame_origin", "mean")
+        if self.origin is None and rule == "anchor":
+            rule = "median"
+        self.ref = fit_origin(trajs, rule)
+        self.anchor = None
+        if rule == "anchor":
+            name, at = nearest_anchor(self.ref)
+            if name is not None and np.allclose(at, self.ref):
+                self.anchor = name
         # orientation: street grid (90-degree ambiguity resolved by the
         # principal axis) if configured, otherwise principal axes
         orient = HP["encoders"].get("frame_orientation", "none")
         self.angle = fit_orientation(trajs, self.ref, "grid" if orient == "grid" else "pca")
+        self.step_m = median_step_m(trajs, self.ref)
         return self
 
     def to_pseudo_lonlat(self, lonlat):
@@ -102,8 +117,9 @@ class FramedTokenizer:
     last fitted on. `refit` moves the frame to a new corpus; the encoder and
     the trained model are untouched."""
 
-    def __init__(self, inner, name):
-        self.inner, self.name, self.frame = inner, name, CanonicalFrame()
+    def __init__(self, inner, name, origin=None):
+        self.inner, self.name, self.frame = inner, name, CanonicalFrame(origin)
+        self.step_ref = None        # median step of the corpus it was trained on
 
     @property
     def dim(self):
@@ -111,6 +127,8 @@ class FramedTokenizer:
 
     def fit(self, trajs, force=False):
         self.frame.fit(trajs)
+        self.step_ref = self.frame.step_m
+        self._set_step_scale()
         if hasattr(self.inner.loc, "ref_deg"):
             self.inner.loc.ref_deg = np.zeros(2)
             self.inner.loc.frame_angle = 0.0    # the canonical frame is applied here
@@ -122,8 +140,33 @@ class FramedTokenizer:
         return self
 
     def refit(self, trajs):
-        self.frame.fit(trajs)
+        """Move the frame to another corpus. If both corpora sit at the same
+        city anchor (e.g. T-Drive and GeoLife, both Beijing), origin and
+        orientation are kept: it is the same city. The step scale always
+        follows the new corpus (its sampling interval can differ)."""
+        new = CanonicalFrame(self.frame.origin).fit(trajs)
+        if new.anchor is not None and new.anchor == self.frame.anchor:
+            self.frame.step_m = new.step_m
+        else:
+            self.frame = new
+        self._set_step_scale()
         return self
+
+    def _set_step_scale(self):
+        """[encoders] geo_step_scale = "median": the displacement channel reads
+        each step in units of the corpus' median step, rescaled to the
+        training corpus (r * step_ref / step_m). 1 on the training corpus and
+        under rigid motions; on another dataset it undoes the difference in
+        sampling interval and city scale."""
+        from ..config import HP
+        disp = getattr(self.inner, "disp", None)
+        if disp is None:
+            return
+        s = 1.0
+        if (HP["encoders"].get("geo_step_scale", "median") == "median"
+                and self.step_ref and self.frame.step_m):
+            s = self.step_ref / self.frame.step_m
+        disp.step_scale = float(s)
 
     def __call__(self, traj):
         return self.inner(Traj(self.frame.to_pseudo_lonlat(traj.lonlat),
@@ -196,7 +239,8 @@ class EtaTask(_Supervised):
         import inspect
         from . import exp_downstream as D
         sig = inspect.signature(D.run).parameters
-        step, mx = sig["eta_step_m"].default, sig["eta_max_min"].default
+        step = self.cfg.get("eta_step_m") or sig["eta_step_m"].default
+        mx = self.cfg.get("eta_max_min") or sig["eta_max_min"].default
         items = []
         for t in trajs:
             dur = (t.t[-1] - t.t[0]) * 60.0

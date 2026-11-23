@@ -430,7 +430,8 @@ class DisplacementGEO(Encoder):
         self.n_inv = 2 * n_scales
 
     def encode_disp(self, dxy: np.ndarray) -> np.ndarray:
-        dxy = np.asarray(dxy, dtype=np.float64)
+        # step_scale: set by a re-fitted frame (geo_step_scale); 1 otherwise
+        dxy = np.asarray(dxy, dtype=np.float64) * getattr(self, "step_scale", 1.0)
         r = np.linalg.norm(dxy, axis=1)
         psi = np.arctan2(dxy[:, 1], dxy[:, 0])
         a = 2 * np.pi * r[:, None] / self.lams[None, :]

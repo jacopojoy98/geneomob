@@ -137,7 +137,7 @@ def build_tokenizers(which=("gpe", "geo_full", "xy", "grid", "fourier",
 # training / evaluation
 # --------------------------------------------------------------------------
 def train_contrastive(tok, trajs, kind="lstm", epochs=5, bs=128, lr=1e-3,
-                      device="cpu", seed=0, model=None, freeze=False):
+                      device="cpu", seed=0, model=None, freeze=False, on_epoch=None):
     set_seed(seed)
     rng = np.random.default_rng(seed)
     if model is None:
@@ -159,7 +159,10 @@ def train_contrastive(tok, trajs, kind="lstm", epochs=5, bs=128, lr=1e-3,
             opt.step()
             tot += loss.detach().item()
             nb += 1
-        print(f"  epoch {ep + 1}/{epochs} loss={tot / max(nb, 1):.4f}")
+        if epochs <= 10 or (ep + 1) % max(1, epochs // 10) == 0 or ep + 1 == epochs:
+            print(f"  epoch {ep + 1}/{epochs} loss={tot / max(nb, 1):.4f}")
+        if on_epoch is not None:
+            on_epoch(model, ep)
     return model
 
 

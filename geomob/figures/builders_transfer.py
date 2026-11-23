@@ -53,18 +53,45 @@ def _ns(res):
     return len(res.get("seeds") or [0])
 
 
+def _budget_ticks(res, r):
+    fr = r.get("fractions", res.get("fractions", []))
+    labels = res.get("budget_labels")
+    if not labels or len(labels) != len(fr):
+        labels = [f"{int(round(f))}" if f > 1 else f"{100 * f:g}%" for f in fr]
+    return fr, labels
+
+
+def _has_cal(r):
+    return any("calibrated" in pr for pr in r["pairs"].values())
+
+
+def _cal_tick(res):
+    n = (res.get("protocol") or {}).get("calib_n")
+    return f"calib.\n({n} trips)" if n else "calib."
+
+
+def _xlabel(res, r):
+    fr, _ = _budget_ticks(res, r)
+    if fr and all(f > 1 for f in fr if f != 1.0):
+        return "target trajectories used for fine-tuning (or % of the training split)"
+    return "target training data used"
+
+
 # --------------------------------------------------------------------------
 # 1. curves: zero-shot -> fine-tuned, against from scratch
 # --------------------------------------------------------------------------
 def _fig_curves(res, tname, kind, r):
-    names, fr = r["datasets"], r["fractions"] if "fractions" in r else res["fractions"]
+    names = r["datasets"]
+    fr, blabels = _budget_ticks(res, r)
     m, hi = r["metric"], r["higher_is_better"]
     n = len(names)
+    cal = _has_cal(r)
     fig, axes = plt.subplots(n, n, squeeze=False,
                              figsize=(WIDTH_2COL, 1.55 * n + 1.25), sharey="row")
-    x_ft = np.arange(len(fr) + 1, dtype=float)          # 0 = zero-shot
-    x_sc = x_ft[1:]
-    ticks = ["zero-\nshot"] + [f"{100 * f:g}%" for f in fr]
+    n0 = 2 if cal else 1                                # zero-shot (+ calibrated)
+    x_ft = np.arange(len(fr) + n0, dtype=float)         # 0 = zero-shot
+    x_sc = x_ft[n0:]
+    ticks = ["zero-\nshot"] + ([_cal_tick(res)] if cal else []) + blabels
     for i, dst in enumerate(names):
         ind = r["in_domain"][dst]
         for j, src in enumerate(names):
@@ -99,7 +126,10 @@ def _fig_curves(res, tname, kind, r):
                 else:
                     for row in (GPE, GEO):
                         st = STYLE[row]
-                        cells = [pr["zero_shot"][row]] + pr["finetune"][row]
+                        cells = ([pr["zero_shot"][row]]
+                                 + ([pr["calibrated"][row]] if cal and "calibrated" in pr
+                                    else [{m: np.nan}] if cal else [])
+                                 + pr["finetune"][row])
                         y = np.array([c[m] for c in cells])
                         ax.plot(x_ft, y, ls="-", marker=st["marker"], color=st["color"],
                                 ms=3.6, lw=1.6, zorder=3)
@@ -118,13 +148,13 @@ def _fig_curves(res, tname, kind, r):
             for row in (GPE, GEO):           # trained on the whole target
                 ax.axhline(ind[row][m], color=STYLE[row]["color"], lw=0.7, ls="--",
                            alpha=0.7, zorder=0)
-            ax.axvline(0.5, color="0.6", lw=0.6)
-            ax.set_xlim(-0.5, len(fr) + 0.5)
+            ax.axvline(n0 - 0.5, color="0.6", lw=0.6)
+            ax.set_xlim(-0.5, len(fr) + n0 - 0.5)
             ax.set_xticks(x_ft)
-            ax.set_xticklabels(ticks, fontsize=5.8)
+            ax.set_xticklabels(ticks, fontsize=5.6)
             ax.tick_params(axis="y", labelsize=6)
             if i == n - 1:
-                ax.set_xlabel("target training data used", fontsize=6)
+                ax.set_xlabel(_xlabel(res, r), fontsize=6)
     from matplotlib.lines import Line2D
     h = [Line2D([], [], color=STYLE[GPE]["color"], marker="o", lw=1.6,
                 label="GPE as published: source model, fine-tuned"),
@@ -159,16 +189,20 @@ def _fig_curves(res, tname, kind, r):
 # --------------------------------------------------------------------------
 MAIN = {GPE: dict(MAIN_STYLE["gpe_fixed"]), GEO: dict(MAIN_STYLE["geo_refit"])}
 MAIN_LABEL = {GPE: "GPE as published (raw lon/lat, spatial only)",
-              GEO: "GEO, all channels, frame re-fitted on the target city"}
+              GEO: "GEO, all channels, frame of the target city (fitted without labels)"}
 
 
-def _fig_main(res, tname, kind, r):
+def _fig_main(res, tname, kind, r, metric=None):
     """One row per target, one panel per source. Left of the rule: the model
     trained on the target itself (in domain); right of it: the source model
-    on the target, zero-shot and then fine-tuned on growing fractions of the
-    target's training data. Bands: +-1 std over seeds."""
-    names, m, hi = r["datasets"], r["metric"], r["higher_is_better"]
-    fr = r.get("fractions", res.get("fractions", []))
+    on the target, zero-shot (travel time: also calibrated on a few labelled
+    trips) and then fine-tuned on growing budgets of the target's training
+    data. Bands: +-1 std over seeds. `metric="rank_corr"`: the travel-time
+    figure in rank correlation (no calibrated column: a line keeps ranks)."""
+    names = r["datasets"]
+    m, hi = (metric, True) if metric else (r["metric"], r["higher_is_better"])
+    fr, blabels = _budget_ticks(res, r)
+    cal = _has_cal(r) and metric is None
     srcs = {t: [s for s in names if s != t and f"{s}\u2192{t}" in r["pairs"]]
             for t in names}
     targets = [t for t in names if srcs[t]]
@@ -176,8 +210,10 @@ def _fig_main(res, tname, kind, r):
     fig, axes = plt.subplots(len(targets), ncol, squeeze=False,
                              figsize=(WIDTH_2COL, 1.75 * len(targets) + 1.25),
                              sharey="row")
-    x = np.arange(len(fr) + 1, dtype=float) + 1.0       # zero-shot, fractions
-    ticks = ["in\ndomain", "zero-\nshot"] + [f"{100 * f:g}%" for f in fr]
+    n0 = 2 if cal else 1
+    x = np.arange(len(fr) + n0, dtype=float) + 1.0      # zero-shot, (cal.), budgets
+    ticks = (["in\ndomain", "zero-\nshot"] + ([_cal_tick(res)] if cal else [])
+             + blabels)
     for i, dst in enumerate(targets):
         ind = r["in_domain"][dst]
         for j in range(ncol):
@@ -190,8 +226,11 @@ def _fig_main(res, tname, kind, r):
             for k, row in enumerate((GPE, GEO)):
                 st = dict(MAIN[row])
                 mfc = st.pop("mfc", st["color"])
-                cells = [pr["zero_shot"][row]] + list(pr["finetune"][row])
-                y = np.array([c[m] for c in cells])
+                cells = ([pr["zero_shot"][row]]
+                         + ([pr["calibrated"][row]] if cal and "calibrated" in pr
+                            else [{m: np.nan}] if cal else [])
+                         + list(pr["finetune"][row]))
+                y = np.array([c.get(m, np.nan) for c in cells])
                 ax.plot(x, y, ms=3.6, label=MAIN_LABEL[row], mfc=mfc,
                         mec=st["color"], mew=0.9, zorder=3, **st)
                 if m + "_std" in cells[0]:
@@ -199,27 +238,31 @@ def _fig_main(res, tname, kind, r):
                     ax.fill_between(x, y - e, y + e, color=st["color"], alpha=0.13,
                                     lw=0, zorder=1)
                 c0 = ind[row]                         # trained on the target
-                ax.errorbar([(k - 0.5) * 0.12], [c0[m]], yerr=[c0.get(m + "_std", 0.0)],
+                ax.errorbar([(k - 0.5) * 0.12], [c0.get(m, np.nan)],
+                            yerr=[c0.get(m + "_std", 0.0)],
                             fmt=st["marker"], ms=4.2, color=st["color"], mfc=mfc,
                             mec=st["color"], mew=0.9, capsize=1.5, elinewidth=0.8,
                             zorder=4)
             ax.axvline(0.5, color="0.6", lw=0.6)
-            ax.set_xlim(-0.6, len(fr) + 1.5)
+            ax.set_xlim(-0.6, len(fr) + n0 + 0.5)
             ax.set_xticks(np.r_[0.0, x])
-            ax.set_xticklabels(ticks, fontsize=6)
+            ax.set_xticklabels(ticks, fontsize=5.6 if cal else 6)
             ax.grid(axis="y", color="0.9", lw=0.5)
             ax.set_axisbelow(True)
             ax.set_title(f"{src} \u2192 {dst}", fontsize=7.5)
             if i == len(targets) - 1:
-                ax.set_xlabel("target training data used for fine-tuning", fontsize=6)
+                ax.set_xlabel(_xlabel(res, r), fontsize=6)
             if j == 0:
                 arrow = r"$\uparrow$" if hi else r"$\downarrow$"
-                ax.set_ylabel(f"target: {dst}\n{m}{UNITS.get(m, '')} {arrow}",
+                mname = "rank corr." if m == "rank_corr" else m
+                ax.set_ylabel(f"target: {dst}\n{mname}{UNITS.get(m, '')} {arrow}",
                               fontsize=6.5)
     h_, l_ = axes[0][0].get_legend_handles_labels()
     ns = _ns(res)
     t = TASK_NAME.get(tname, tname).replace(" (control)", "")
-    fig.suptitle(f"Transfer across datasets, {t} ({kind}): trained on the source city"
+    what = (": rank correlation of predicted and true times (Spearman)"
+            if m == "rank_corr" else ": trained on the source city")
+    fig.suptitle(f"Transfer across datasets, {t} ({kind}){what}"
                  + (f"  ({ns} seeds, band $\\pm$1 std)" if ns > 1 else ""),
                  fontsize=8.5)
     H = fig.get_figheight()
@@ -340,6 +383,10 @@ def fig_transfer(res):
     for tname, kind, r in _items(res):
         sfx = f"{tname}" + (f"_{kind}" if multi else "")
         figs.append((f"fig_transfer_suite_{sfx}", _fig_main(res, tname, kind, r)))
+        if tname == "eta" and any("rank_corr" in pr["zero_shot"].get(GEO, {})
+                                  for pr in r["pairs"].values()):
+            figs.append((f"fig_transfer_suite_{sfx}_rank",
+                         _fig_main(res, tname, kind, r, metric="rank_corr")))
         if any(r.get("scratch", {}).values()):     # with the from-scratch baseline
             figs.append((f"fig_transfer_suite_all_{sfx}",
                          _fig_curves(res, tname, kind, r)))
@@ -356,9 +403,10 @@ def tex_transfer(res):
     out = []
     for tname, kind, r in _items(res):
         m, hi = r["metric"], r["higher_is_better"]
-        fr = r.get("fractions", res["fractions"])
+        fr, blabels = _budget_ticks(res, r)
         has_sc = any(r.get("scratch", {}).values())
-        fcols = " & ".join(f"{100 * f:g}\\%" for f in fr)
+        cal = _has_cal(r)
+        fcols = " & ".join(b.replace("%", "\\%") for b in blabels)
         blocks = [("Fine-tuned", fcols)] + ([("Scratch", fcols)] if has_sc else [])
         blocks = [b for b in blocks if fr]
         head = "".join(rf" & \multicolumn{{{len(fr)}}}{{c}}{{{b}}}" for b, _ in blocks)
@@ -367,17 +415,21 @@ def tex_transfer(res):
                  rf"\caption{{Transfer across datasets, {_tx(tname)} ({kind}, "
                  rf"{_tx(m)}, {'higher' if hi else 'lower'} is better). In domain: "
                  r"trained on the target. Zero-shot: the source model on the "
-                 r"target, without target labels. Fine-tuned / scratch: trained "
-                 r"further from the source model / from scratch on that fraction "
-                 r"of the target's training data. $\Delta$: zero-shot against in "
-                 r"domain (negative = worse).}",
+                 r"target, without target labels"
+                 + (r"; Calib.: zero-shot mapped to minutes by a line fitted on a "
+                    r"few labelled target trips" if cal else "")
+                 + r". Fine-tuned / scratch: trained "
+                 r"further from the source model / from scratch on that budget "
+                 r"of the target's training data (trajectories or \%). $\Delta$: "
+                 r"zero-shot against in domain (negative = worse).}",
                  r"\small",
-                 rf"\begin{{tabular}}{{ll rr r{'r' * len(fr) * len(blocks)}}}",
+                 rf"\begin{{tabular}}{{ll rr r{'r' if cal else ''}"
+                 rf"{'r' * len(fr) * len(blocks)}}}",
                  r"\toprule",
                  rf"Source$\to$target & Method & In domain & Zero-shot & $\Delta$ (\%)"
-                 + head + r" \\"]
+                 + (" & Calib." if cal else "") + head + r" \\"]
         if blocks:
-            lines.append(rf" & & & & {sub} \\")
+            lines.append(rf" & & & & {'& ' if cal else ''}{sub} \\")
         lines += [r"\midrule"]
         for key, pr in r["pairs"].items():
             for i, row in enumerate((GEO, GPE)):
@@ -387,6 +439,9 @@ def tex_transfer(res):
                 cols = [f"{c[m]:.3f}" for c in pr["finetune"][row]]
                 if has_sc:
                     cols += [f"{c[m]:.3f}" for c in r["scratch"][pr["dst"]][row]]
+                if cal:
+                    cv = pr.get("calibrated", {}).get(row, {}).get(m)
+                    cols = [f"{cv:.3f}" if cv is not None else "--"] + cols
                 lines.append((f"{_tx(pr['src'])}$\\to${_tx(pr['dst'])}" if i == 0 else "")
                              + f" & {_tx(SHORT[row])} & {ind:.3f} & {zs:.3f} & "
                              + f"{ch:+.1f}" + "".join(f" & {c}" for c in cols) + r" \\")
