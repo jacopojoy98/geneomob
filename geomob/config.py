@@ -73,6 +73,7 @@ _HP_DEFAULTS = {
         "frame_orientation": "none",    # none | grid | pca
         "frame_anchors": {},            # extra anchors: {name = [lon, lat]}
         "frame_anchor_radius_km": 75.0,
+        "geo_step_scale": "median",     # median | none (see FramedTokenizer)
         "geo_coords": "metric",         # metric (local frame) | lonlat
         "learn_lambdas": "none",        # none | loc | disp | both
         "learn_lambda_min_m": 0.0,      # scales starting below this stay fixed
@@ -139,6 +140,7 @@ def _norm(d: dict) -> dict:
 
 
 CHOICES = {"frame_origin": ("mean", "median", "anchor"),
+           "geo_step_scale": ("median", "none"),
            "frame_orientation": ("none", "grid", "pca"),
            "geo_coords": ("metric", "lonlat"),
            "learn_lambdas": ("none", "loc", "disp", "both")}
@@ -408,6 +410,7 @@ ENCODER_HELP = {
     "speed_lo": "SpeedGEO shortest wavelength (log1p units)",
     "speed_hi": "SpeedGEO longest wavelength (log1p units)",
     "frame_origin": "origin of GEO's local frame: mean (centre of mass of the training points; moves with the sample), median (geometric median: robust to far-away trips, and it moves with the city when the city is shifted or turned), anchor (a fixed city centre: identical for training, validation, test and every run; falls back to the median when no anchor is near)",
+    "geo_step_scale": "median: when GEO's frame is re-fitted on ANOTHER corpus (transfer_suite), its displacement channel reads every step in units of that corpus' median step, rescaled to the training corpus, which undoes differences in sampling interval and city scale (e.g. T-Drive ~3 min vs Porto 15 s); no effect in domain or under rigid motions. none: raw metres",
     "frame_orientation": "x-axis of the frame: none (east), grid (dominant street direction, from step headings), pca (longest spread of the points)",
     "frame_anchors": "extra city centres for frame_origin = anchor, e.g. {lisbon = [-9.1393, 38.7223]}; built in: beijing, porto, rome, san_francisco, singapore, new_york",
     "frame_anchor_radius_km": "an anchor is used only if the data's median lies within this distance of it",

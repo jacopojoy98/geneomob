@@ -502,10 +502,38 @@ def main(argv=None):
                          "has them)")
     ts.add_argument("--kinds", nargs="+", default=["lstm"],
                     choices=["lstm", "transformer", "gnn"])
-    ts.add_argument("--fractions", type=float, nargs="*", default=[0.01, 0.1, 1.0],
-                    help="fractions of the target's training split used for "
-                         "fine-tuning and for the from-scratch baseline "
-                         "(zero-shot is always run)")
+    ts.add_argument("--fractions", type=float, nargs="*", default=[50, 200, 1000, 1.0],
+                    help="target training budgets for fine-tuning and for the "
+                         "from-scratch baseline: a number of trajectories if > 1, "
+                         "a share of the training split if <= 1 (zero-shot is "
+                         "always run)")
+    ts.add_argument("--frame-origin", default="anchor",
+                    choices=["anchor", "median", "mean"],
+                    help="origin of GEO's frame in this suite. anchor: the city "
+                         "centre, so two datasets of the same city (T-Drive, "
+                         "GeoLife) share origin and orientation; median / mean: "
+                         "fitted on each corpus")
+    ts.add_argument("--no-early-stopping", action="store_true",
+                    help="train for exactly the given epochs instead of keeping "
+                         "the best epoch on a validation part of each budget")
+    ts.add_argument("--stop-val-frac", type=float, default=0.1,
+                    help="share of each budget held out for early stopping "
+                         "(at least 8, at most 1000 trajectories)")
+    ts.add_argument("--min-steps", type=int, default=200,
+                    help="minimum number of optimisation steps per training "
+                         "(more epochs for small budgets; 0 = off)")
+    ts.add_argument("--ft-shrink", type=float, default=1.0,
+                    help="shrink-and-perturb before fine-tuning: multiply the "
+                         "source weights by this (e.g. 0.5; 1 = off)")
+    ts.add_argument("--ft-noise", type=float, default=0.0,
+                    help="shrink-and-perturb: std of the Gaussian noise added "
+                         "to the source weights (e.g. 0.01; 0 = off)")
+    ts.add_argument("--calib-n", type=int, default=50,
+                    help="travel time: labelled target trips used to calibrate "
+                         "the zero-shot predictions (a line, two numbers; 0 = off)")
+    ts.add_argument("--eta-max-min", type=float, default=180.0,
+                    help="travel time: drop trips longer than this (minutes), "
+                         "on every dataset")
     ts.add_argument("--similarity-extras", default="none",
                     choices=["none", "speed", "time", "time_speed"],
                     help="GEO's channels on top of location + displacement for "
@@ -553,6 +581,13 @@ def main(argv=None):
                     help="seeds averaged inside each search trial")
     ts.add_argument("--val-frac", type=float, default=0.2,
                     help="share of each training split used for validation")
+    ts.add_argument("--select-on", default="in_domain",
+                    choices=["in_domain", "zero_shot", "both"],
+                    help="search: pick GEO's configuration by its in-domain "
+                         "validation score, by its zero-shot transfer between the "
+                         "datasets' validation parts (no extra training; for "
+                         "travel time it reads the targets' validation labels), "
+                         "or both")
     ts.add_argument("--search-dir", default=None,
                     help="where trials.jsonl / search_results.csv / best_*.toml "
                          "go (default: <out>_search)")
@@ -710,12 +745,18 @@ def _dispatch(args):
                    epochs=args.epochs, ft_epochs=args.ft_epochs, bs=args.bs,
                    lr=args.lr, ft_lr=args.ft_lr, seeds=tuple(args.seeds),
                    device=args.device, out=args.out, scratch=args.scratch,
-                   ablations=args.ablations, search=args.search,
+                   ablations=args.ablations, frame_origin=args.frame_origin,
+                   early_stopping=not args.no_early_stopping,
+                   stop_val_frac=args.stop_val_frac, min_steps=args.min_steps,
+                   ft_shrink=args.ft_shrink, ft_noise=args.ft_noise,
+                   calib_n=args.calib_n, eta_max_min=args.eta_max_min,
+                   search=args.search,
                    space=args._cfg.get("search_space"), base_config=args._cfg,
                    search_method=args.search_method, n_trials=args.n_trials,
                    search_seed=args.search_seed, search_epochs=args.search_epochs,
                    search_seeds=tuple(args.search_seeds), val_frac=args.val_frac,
-                   search_dir=args.search_dir, resume=not args.no_resume)
+                   search_dir=args.search_dir, resume=not args.no_resume,
+                   select_on=args.select_on)
 
     if args.cmd == "selfcheck":
         from .selfcheck import run as _sc

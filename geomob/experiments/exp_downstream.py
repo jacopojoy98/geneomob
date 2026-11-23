@@ -334,13 +334,13 @@ def _batches(lengths, bs, rng):
             yield batches[i]
 
 
-def _fit(model, X, loss_fn, epochs, bs, lr, device, seed):
+def _fit(model, X, loss_fn, epochs, bs, lr, device, seed, on_epoch=None):
     set_seed(seed)
     rng = np.random.default_rng(seed)
     model.to(device).train()
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
     lengths = [len(x) for x in X]
-    for _ in range(epochs):
+    for ep in range(epochs):
         for b in _batches(lengths, bs, rng):
             x, m = pad_batch([X[i] for i in b], device)
             loss = loss_fn(model, x, m, b)
@@ -348,6 +348,8 @@ def _fit(model, X, loss_fn, epochs, bs, lr, device, seed):
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
+        if on_epoch is not None:
+            on_epoch(model, ep)
     return model
 
 
@@ -390,12 +392,31 @@ def classification_metrics(logits, y, n_classes, k=5):
     return out, {int(c): float(f) for c, f in zip(present, F)}
 
 
+def _spearman(a, b):
+    """Rank correlation (average ranks for ties); nan if either is constant."""
+    def ranks(x):
+        x = np.asarray(x, dtype=np.float64)
+        order = np.argsort(x, kind="mergesort")
+        r = np.empty(len(x))
+        r[order] = np.arange(len(x), dtype=np.float64)
+        _, inv, cnt = np.unique(x, return_inverse=True, return_counts=True)
+        sums = np.bincount(inv, weights=r)
+        return (sums / cnt)[inv]
+    ra, rb = ranks(a), ranks(b)
+    if ra.std() == 0 or rb.std() == 0:
+        return float("nan")
+    return float(np.corrcoef(ra, rb)[0, 1])
+
+
 def regression_metrics(pred, y, mape_floor=1.0):
+    """MAE / RMSE / MAPE, and rank_corr (Spearman): whether the trips are
+    put in the right order, whatever the scale of the predictions."""
     e = pred - y
     m = y >= mape_floor            # MAPE is undefined for near-zero targets
     return {"MAE": float(np.mean(np.abs(e))),
             "RMSE": float(np.sqrt(np.mean(e ** 2))),
-            "MAPE": float(np.mean(np.abs(e[m]) / y[m]) * 100) if m.any() else float("nan")}
+            "MAPE": float(np.mean(np.abs(e[m]) / y[m]) * 100) if m.any() else float("nan"),
+            "rank_corr": _spearman(pred, y)}
 
 
 # ==========================================================================

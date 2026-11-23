@@ -77,6 +77,8 @@ frame_orientation = "grid"
 frame_anchors = {}
 # an anchor is used only if the data's median lies within this distance of it
 frame_anchor_radius_km = 75.0
+# median: when GEO's frame is re-fitted on ANOTHER corpus (transfer_suite), its displacement channel reads every step in units of that corpus' median step, rescaled to the training corpus, which undoes differences in sampling interval and city scale (e.g. T-Drive ~3 min vs Porto 15 s); no effect in domain or under rigid motions. none: raw metres
+geo_step_scale = "median"
 # coordinates of GEO's toroidal (location) part: metric (metres in the local frame) or lonlat (raw longitude/latitude, like GPE, with GEO's wavelengths)
 geo_coords = "metric"
 # GEO wavelengths trained with the model instead of fixed: none, loc (location), disp (radial), both. They start on the lam_min..lam_max ladder; equivariance is kept for any value
@@ -443,9 +445,25 @@ combined = ["1:15", "10:30", "20:23", "80:41"]
 # datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
 # mode needs mode labels on two datasets (GeoLife alone has them)
 # tasks = ["similarity", "eta"]
-kinds = ["transformer"]
-# fractions of the target's training split used for fine-tuning and for the from-scratch baseline (zero-shot is always run)
-fractions = [0, 0.001, 0.005]
+# kinds = ["lstm"]
+# target training budgets for fine-tuning and for the from-scratch baseline: a number of trajectories if > 1, a share of the training split if <= 1 (zero-shot is always run)
+# fractions = [50, 200, 1000, 1.0]
+# origin of GEO's frame in this suite. anchor: the city centre, so two datasets of the same city (T-Drive, GeoLife) share origin and orientation; median / mean: fitted on each corpus
+# frame_origin = "anchor"
+# train for exactly the given epochs instead of keeping the best epoch on a validation part of each budget
+# no_early_stopping = false
+# share of each budget held out for early stopping (at least 8, at most 1000 trajectories)
+# stop_val_frac = 0.1
+# minimum number of optimisation steps per training (more epochs for small budgets; 0 = off)
+# min_steps = 200
+# shrink-and-perturb before fine-tuning: multiply the source weights by this (e.g. 0.5; 1 = off)
+# ft_shrink = 1.0
+# shrink-and-perturb: std of the Gaussian noise added to the source weights (e.g. 0.01; 0 = off)
+# ft_noise = 0.0
+# travel time: labelled target trips used to calibrate the zero-shot predictions (a line, two numbers; 0 = off)
+# calib_n = 50
+# travel time: drop trips longer than this (minutes), on every dataset
+# eta_max_min = 180.0
 # GEO's channels on top of location + displacement for similarity (none: the odd/even protocol changes the sampling interval, which the speed channel encodes)
 similarity_extras = "time"
 similarity_metric = "KP@10"
@@ -482,6 +500,8 @@ search_epochs = 2
 # search_seeds = [0]
 # share of each training split used for validation
 # val_frac = 0.2
+# search: pick GEO's configuration by its in-domain validation score, by its zero-shot transfer between the datasets' validation parts (no extra training; for travel time it reads the targets' validation labels), or both
+# select_on = "in_domain"
 # where trials.jsonl / search_results.csv / best_*.toml go (default: <out>_search)
 # search_dir =
 # ignore search trials already in trials.jsonl

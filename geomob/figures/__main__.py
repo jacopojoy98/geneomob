@@ -99,17 +99,28 @@ CAPTIONS = {
         "source datasets. Left of the vertical rule: the model trained on the "
         "target itself (in domain), the reference. Right of it: the model "
         "trained on the source, applied to the target without any target "
-        "label (zero-shot), then fine-tuned on growing fractions of the "
-        "target's training data. GPE (orange, dotted, hollow) is the published "
+        "label (zero-shot), then fine-tuned on growing budgets of the "
+        "target's training data (numbers of trajectories, or a share of the "
+        "training split). For travel time, \"calib.\" is the zero-shot model "
+        "with its predictions mapped to minutes by a line fitted on a few "
+        "labelled target trips. GPE (orange, dotted, hollow) is the published "
         "method on raw longitude and latitude; GEO (blue, solid, filled) uses "
-        "every channel the task allows and re-fits its frame on the target "
-        "city without labels. Bands and error bars: $\\pm$1 standard "
-        "deviation over seeds.",
+        "every channel the task allows, in a frame at the city anchor "
+        "(re-fitted only when the city changes), with steps read in units of "
+        "the corpus' median step. Every training keeps its best epoch on a "
+        "validation part of its own budget. Bands and error bars: $\\pm$1 "
+        "standard deviation over seeds.",
+    "fig_transfer_suite_eta_rank":
+        "Transfer across datasets, travel-time estimation in rank correlation "
+        "(Spearman) between predicted and true travel times: whether a model "
+        "puts the trips of the target city in the right order, independently "
+        "of the scale of its predictions (which zero-shot cannot know). "
+        "Layout as in the travel-time figure.",
     "fig_transfer_suite_all":
         "Transfer across datasets with the from-scratch baseline (appendix). "
         "Rows are the target dataset, columns the source. Solid lines: source "
-        "model fine-tuned on growing fractions of the target; dotted lines "
-        "with hollow markers: a fresh model trained on the same fraction, so "
+        "model fine-tuned on growing budgets of the target; dotted lines "
+        "with hollow markers: a fresh model trained on the same budget, so "
         "the gap between the two is what the source contributed. Thin dashed "
         "lines: trained on the whole target.",
     "fig_transfer_suite_matrix":

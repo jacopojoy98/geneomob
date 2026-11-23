@@ -314,11 +314,13 @@ ordered pair of the available datasets:
 |---|---|---|
 | in domain | a model on the target's whole training split (the reference) | yes |
 | zero-shot | the source model, applied to the target's test split | **no** |
-| fine-tuned | the source model, trained further on `fractions` of the target's training split | that fraction |
-| from scratch (`--scratch` only) | a fresh model on the same fraction of the target | that fraction |
+| calibrated (travel time) | zero-shot, with predictions mapped to minutes by a line fitted on `calib_n` (50) labelled target trips | `calib_n` trips |
+| fine-tuned | the source model, trained further on a budget of the target's training split | that budget |
+| from scratch (`--scratch` only) | a fresh model on the same budget of the target | that budget |
 
 Zero-shot uses no target label. The only adaptation is label-free:
-- GEO re-fits its frame on the target city.
+- GEO re-fits its frame on the target city (only if it is another city, see
+  below) and reads steps in units of the target's median step.
 - With `adapt_norm` (default; off with `--no-adapt-norm`), both methods re-fit
   their per-dimension token standardisation on the target's unlabelled
   training tokens.
@@ -340,9 +342,33 @@ Tasks:
   more across datasets.
 
 Options:
-- `fractions` (default 1 %, 10 %, 100 %; at least 32 trajectories).
+- `fractions`: the fine-tuning budgets. A value above 1 is a number of target
+  trajectories, a value up to 1 a share of the training split (at least 32).
+  Default 50, 200, 1000 trajectories and 100 %. Small absolute budgets are
+  where a source model can help: 1 % of Porto is already thousands of trips,
+  enough to train from scratch.
 - `ft_epochs` / `ft_lr` for fine-tuning.
 - `similarity_metric` (default KP@10).
+
+**Protocol (v0.9.8).** Five changes, all on by default except shrink-and-perturb.
+Each can be turned off to reproduce v0.9.7:
+
+| option | default | what it does | v0.9.7 behaviour |
+|---|---|---|---|
+| `frame_origin` | `anchor` | GEO's frame sits at the city anchor (built in: Beijing, Porto, Rome, ...; add others with `[encoders] frame_anchors`). Two datasets of the **same city** (T-Drive and GeoLife) then share origin **and** orientation, as GPE shares coordinates; between cities the frame is re-fitted as before. Overrides `[encoders] frame_origin` in this suite only (robust / relocate need a frame that moves with the city). | `median` |
+| `[encoders] geo_step_scale` | `median` | GEO's displacement channel reads every step in units of the corpus' median step, rescaled to the training corpus. Sampling intervals differ by an order of magnitude or more between datasets (T-Drive ~3 min, Porto 15 s, GeoLife 1–5 s), so the same street segment is one step in one dataset and twenty in another; without this a source model reads the target's steps on the wrong wavelengths. A factor of exactly 1 in domain and under rigid motions, so no other experiment changes. | `none` |
+| early stopping | on | every training (in domain, fine-tuned, from scratch) holds out `stop_val_frac` (10 %, at least 8, at most 1000 trajectories) **of its own budget** and keeps its best epoch on it. `--no-early-stopping` turns it off. | off |
+| `min_steps` | 200 | at least this many optimisation steps per training: with 50 trajectories, 5 epochs would be 5 steps. Early stopping guards against over-fitting. | 0 |
+| `ft_shrink`, `ft_noise` | 1.0, 0.0 (off) | shrink-and-perturb the source weights before fine-tuning (Ash & Adams, NeurIPS 2020): θ ← shrink·θ + noise·N(0,1). Try 0.5 and 0.01 if fine-tuned models still end below models trained from scratch on the same data (warm-started networks often generalise worse). Learned wavelengths are left alone. | — |
+| `calib_n` | 50 | the calibrated travel-time regime (0 = off) | — |
+| `eta_max_min` | 180 | travel-time trips longer than this are dropped on every dataset. T-Drive's 200-point windows at ~3 min sampling can last hours and include stops; 60 makes the datasets more comparable. | 180 (fixed) |
+
+Travel time also gets `rank_corr` (Spearman correlation of predicted and true
+times) everywhere. It says whether a model puts the target's trips in the right
+order whatever the scale of its predictions. Zero-shot travel time is read on
+the source's duration scale, so its MAE mostly measures how different the
+cities' trip durations are. Read `rank_corr` and the calibrated point to see
+what transferred.
 
 **Search** (`--search`). A source model has to read the target with the
 same tokenizer, so GEO gets one configuration per task and model, shared by
@@ -359,6 +385,28 @@ searched. `search_epochs` and `search_seeds` keep trials cheap. Files in
 records each task's GEO layout, the settings that differ from the base, and
 the search summary.
 
+**Selecting for transfer (`select_on`).** By default the search keeps the
+configuration with the best *in-domain* validation score. That optimum is
+usually location-heavy (e.g. `geo_loc_dims` 116 of 128 and
+`geo_loc_lam_max_m` in the thousands of km, i.e. most of the token spent on
+absolute position), which is exactly what a model cannot reuse in another
+city. `--select-on zero_shot` scores every candidate instead by its zero-shot
+transfer: the model trained on each dataset's training part is applied, frame
+re-fitted, to every other dataset's validation part. Ratios to the base
+configuration are averaged over the ordered pairs. This costs no extra
+training. For travel time the calibrated zero-shot score is used (raw zero-shot
+MAE mostly measures how different the cities' trip durations are), and the
+targets' labels are read; similarity needs none. `both` averages the two kinds of ratio. `search_results.csv`
+reports both ratios and every pair for every trial, so one search shows the
+trade-off. A search space worth trying for transfer:
+
+```toml
+[search_space]
+geo_loc_dims = [32, 64, 96, 116]
+geo_loc_lam_max_m = [2000, 20000, 200000, 8100000]
+geo_harmonics = [[1, 4]]
+```
+
 ```bash
 python -m geomob.cli transfer_suite --config geomob.toml --search --search-epochs 3 \
     --seeds 0 1 2 --out results/transfer.json
@@ -366,19 +414,22 @@ python -m geomob.cli transfer_suite --config geomob.toml --search --search-epoch
 
 Cost per task, model and seed:
 - one training per dataset and method (also the in-domain reference);
-- one per ordered pair x fraction (fine-tuning);
-- with `--scratch`, one per dataset x fraction below 100 %.
+- one per ordered pair x budget (fine-tuning);
+- with `--scratch`, one per dataset x budget below 100 %.
 
-With 3 datasets and 3 fractions that is 6 + 18 = 24 trainings per method
-(30 with `--scratch`).
+With 3 datasets and 4 budgets that is 6 + 24 = 30 trainings per method (39
+with `--scratch`). The small budgets are cheap even with `min_steps`.
 
 Figures:
 - **`fig_transfer_suite_<task>`**: the layout of `fig_robust_<task>`. One row
   per target, one panel per source (e.g. "porto → tdrive"). Left of the
   vertical rule: the model trained on the target itself (in domain), like
   "in place" in the robustness figure. Right of it: the source model on the
-  target, zero-shot and then fine-tuned on growing fractions. GPE orange,
-  dotted, hollow; GEO blue, solid, filled; bands ±1 std over seeds.
+  target, zero-shot, calibrated (travel time), then fine-tuned on growing
+  budgets. GPE orange, dotted, hollow; GEO blue, solid, filled; bands ±1 std
+  over seeds.
+- **`fig_transfer_suite_eta_rank`**: the same for travel time in rank
+  correlation.
 - **`fig_transfer_suite_all_<task>`** (only with `--scratch`): the detailed
   grid with the from-scratch baseline, for the appendix.
 - **`fig_transfer_suite_matrix`**: zero-shot retention, the % of the in-domain

@@ -108,7 +108,7 @@ def geo_channels(task_name, sim_extras="speed"):
     return True, True
 
 
-def geo_full(task_name, sim_extras="speed"):
+def geo_full(task_name, sim_extras="speed", origin=None):
     from .exp_downstream import _geo_disp, _geo_loc
     from .exp_gpe_suite import maybe_learnable_geo, speed_encoder, time_encoder
     use_t, use_s = geo_channels(task_name, sim_extras)
@@ -116,7 +116,7 @@ def geo_full(task_name, sim_extras="speed"):
                                 time=time_encoder() if use_t else None,
                                 speed=speed_encoder() if use_s else None,
                                 name=GEO_ROW)
-    return FramedTokenizer(inner, GEO_ROW)
+    return FramedTokenizer(inner, GEO_ROW, origin=origin)
 
 
 def describe_geo(task_name, sim_extras="speed"):
