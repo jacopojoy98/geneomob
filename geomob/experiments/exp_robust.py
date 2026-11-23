@@ -22,6 +22,12 @@ Methods
                                 speed: it would encode the answer)
                     mode        location + displacement + time + speed
 
+    with --ablations drop|only|both, GEO is also trained with channels
+    removed (one training per variant; see geomob.ablation). In city scope
+    every variant re-fits its frame and is invariant by construction, so its
+    curve only repeats the in-place ablation; with --scope trip it shows which
+    channels survive trips moved one by one.
+
     with --diagnostics, two more rows that cost at most one extra training:
     GEO (full, fixed frame)   the same trained GEO model, frame NOT re-fitted
     GPE (paper) in GEO frame  GPE trained and tested in GEO's re-fitted frame
@@ -227,13 +233,18 @@ class Setting:
     """Trained models for one dataset x task x model x seed."""
 
     def __init__(self, task, kind, seed, base_hp, geo_hp, scope, sim_extras,
-                 diagnostics):
+                 diagnostics, ablations="none"):
         self.task, self.scope = task, scope
         self.base_hp, self.geo_hp = base_hp, geo_hp
         city = list(task.train) + list(task.test)
         self.toks, self.models = {}, {}
         jobs = [("gpe", base_hp, gpe_paper),
                 ("geo", geo_hp, lambda: geo_full(task.name, sim_extras))]
+        self.abl_rows = {}                       # row name -> job key
+        for vk in ablation_variants(task.name, sim_extras, ablations, geo_hp):
+            jobs.append((f"abl:{vk}", geo_hp,
+                         lambda vk=vk: ablate(geo_full(task.name, sim_extras), vk)))
+            self.abl_rows[ablation_row(vk)] = f"abl:{vk}"
         if diagnostics:
             jobs.append(("gpe_frame", base_hp,
                          lambda: FramedTokenizer(gpe_paper(), DIAG_ROWS[1])))
@@ -249,6 +260,7 @@ class Setting:
         self.rows = [GPE_ROW, GEO_ROW] + (list(DIAG_ROWS) if diagnostics else [])
         if scope == "trip" and DIAG_ROWS[0] in self.rows:
             self.rows.remove(DIAG_ROWS[0])      # same as GEO (full) in trip scope
+        self.rows += list(self.abl_rows)
 
     def _framed(self, key, hp, moved_city, moved_test, refit):
         tok, model = self.toks[key], self.models[key]
@@ -269,6 +281,9 @@ class Setting:
                 return self.task.score(self.models["gpe"], self.toks["gpe"], moved_test)
         if row == GEO_ROW:
             return self._framed("geo", self.geo_hp, moved_city, moved_test, refit)
+        if row in self.abl_rows:
+            return self._framed(self.abl_rows[row], self.geo_hp, moved_city,
+                                moved_test, refit)
         if row == DIAG_ROWS[0]:
             return self._framed("geo", self.geo_hp, moved_city, moved_test, False)
         return self._framed("gpe_frame", self.base_hp, moved_city, moved_test, refit)
@@ -290,8 +305,9 @@ def evaluate_setting(st, mover, sweeps, rows=None):
 
 
 def run_once(task, kind, sweeps, seed, base_hp, geo_hp, scope, direction_deg,
-             sim_extras, diagnostics):
-    st = Setting(task, kind, seed, base_hp, geo_hp, scope, sim_extras, diagnostics)
+             sim_extras, diagnostics, ablations="none"):
+    st = Setting(task, kind, seed, base_hp, geo_hp, scope, sim_extras, diagnostics,
+                 ablations)
     mover = Mover(task.train, task.test, scope, direction_deg)
     ev = evaluate_setting(st, mover, sweeps)
     m = task.metric
@@ -306,10 +322,40 @@ def run_once(task, kind, sweeps, seed, base_hp, geo_hp, scope, direction_deg,
             "labels": [_label(sweep, d, a) for d, a in pairs],
             "rows": ev["sweeps"][sweep]}
         print(f"    {sweep:11s} " + "  ".join(
-            f"{r.split(' (')[0]}{'' if r in (GPE_ROW, GEO_ROW) else '*'}: "
-            + ",".join(f"{c[m]:.3f}" for c in ev["sweeps"][sweep][r])
+            f"{_short(r)}: " + ",".join(f"{c[m]:.3f}" for c in ev["sweeps"][sweep][r])
             for r in st.rows))
+    if st.abl_rows:
+        out["ablation_rows"] = list(st.abl_rows)
     return out
+
+
+def _short(row):
+    if row in (GPE_ROW, GEO_ROW):
+        return row.split(" (")[0]
+    if row.startswith(GEO_ROW + " "):            # ablation: "GEO (full) - location"
+        return "GEO" + row[len(GEO_ROW):]
+    return row.split(" (")[0] + "*"
+
+
+def ablation_row(vkey):
+    from ..ablation import variant_label
+    return variant_label(vkey, prefix=GEO_ROW)
+
+
+def ablation_variants(task_name, sim_extras, mode, hp=None):
+    """Channel-ablation variant keys for this task's GEO (see geomob.ablation)."""
+    if mode in (None, "none"):
+        return []
+    from ..ablation import variants
+    if hp is None:
+        return [vk for vk, _ in variants(geo_full(task_name, sim_extras), mode)]
+    with using(hp):
+        return [vk for vk, _ in variants(geo_full(task_name, sim_extras), mode)]
+
+
+def ablate(tok, vkey):
+    from ..ablation import ablate as _ab
+    return _ab(tok, vkey, name=ablation_row(vkey))
 
 
 # --------------------------------------------------------------------------
@@ -491,7 +537,7 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
         tasks=("similarity", "eta", "mode"), kinds=("lstm",), scope="city",
         shifts_km=(1.0, 10.0, 100.0, 1000.0), angles=(15.0, 30.0, 45.0, 90.0),
         combined=("1:15", "10:30", "100:45", "1000:90"), direction_deg=0.0,
-        diagnostics=False, similarity_extras="speed",
+        diagnostics=False, similarity_extras="speed", ablations="none",
         n_train=None, n_test=2000, max_traj=20000, epochs=5, bs=128, lr=1e-3,
         seeds=(0,), device="cpu", out=None,
         search=False, space=None, base_config=None, search_method="grid",
@@ -530,7 +576,12 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
     rows = [GPE_ROW, GEO_ROW] + (list(DIAG_ROWS) if diagnostics else [])
     if diagnostics and scope == "trip":
         rows.remove(DIAG_ROWS[0])     # GEO keeps its frame anyway in trip scope
+    for t in tasks:                   # ablation rows (union over tasks)
+        for vk in ablation_variants(t, similarity_extras, ablations):
+            if ablation_row(vk) not in rows:
+                rows.append(ablation_row(vk))
     res = {"robust": True, "rows": rows, "kinds": list(kinds), "tasks": list(tasks),
+           "ablations": ablations,
            "scope": scope, "direction_deg": direction_deg,
            "units": {"translation": "km" + (f", towards {direction_deg:g} deg from east"
                                             if scope == "city" and direction_deg
@@ -580,7 +631,8 @@ def run(datasets=("tdrive", "porto", "roma", "ais", "geolife"), paths=None,
                               "base settings")
                         info = {"error": str(e)}
                 runs = [run_once(task, kind, sweeps, s, base_hp, geo_hp, scope,
-                                 direction_deg, similarity_extras, diagnostics)
+                                 direction_deg, similarity_extras, diagnostics,
+                                 ablations)
                         for s in seeds]
                 d = _mean_runs(runs)
                 d["geo_settings"] = {k: v for k, v in geo_hp["encoders"].items()
@@ -613,7 +665,7 @@ def _summary(res):
                       f"({'higher' if hi else 'lower'} is better); GEO: "
                       f"{d['geo_channels']}; {d['geo_layout']}"
                       + (f"; tuned: {d['geo_settings']}" if d.get("geo_settings") else ""))
-                for r in res["rows"]:
+                for r in [x for x in res["rows"] if x in d["in_place"]]:
                     parts = [f"{sw} {(min if hi else max)(c[m] for c in s['rows'][r]):.3f}"
                              for sw, s in d["sweeps"].items()]
                     print(f"  {r:26s} in place {d['in_place'][r][m]:.3f} | "

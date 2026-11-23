@@ -31,6 +31,7 @@ REQUIRED = {
     "geomob.graph": ["hit_ratio_at_k", "tie_fraction", "build_node_graph"],
     "geomob.models": ["TrajEncoder", "nce_loss"],
     "geomob.learnable": ["LearnableGEO", "LearnableGPE", "FrontEnd"],
+    "geomob.ablation": ["ablate", "variants", "channel_slices", "Ablated"],
     "geomob.experiments.exp_similarity": ["Tokenizer", "train_contrastive"],
     "geomob.experiments.exp_a_task": ["run"],
     "geomob.experiments.exp_anomaly": ["run"],
@@ -48,6 +49,9 @@ REQUIRED = {
     "geomob.figures.builders": [],
     "geomob.figures.builders_suite": ["fig_gpe_suite", "fig_downstream"],
     "geomob.figures.builders_compare": ["build", "fig_cd", "cd_stats"],
+    "geomob.figures.builders_ablation": ["fig_ablation_indomain",
+                                         "fig_ablation_robust",
+                                         "fig_ablation_transfer", "tex_ablation"],
     "geomob.figures.__main__": ["main"],
 }
 TORCH_MODULES = {"geomob.models", "geomob.learnable"} | {m for m in REQUIRED

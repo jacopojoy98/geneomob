@@ -138,7 +138,8 @@ def main(argv=None):
     ds.add_argument("--dataset", default="geolife")
     ds.add_argument("--path", default=None)
     ds.add_argument("--tasks", nargs="+", default=["tul", "eta", "mode", "anomaly"],
-                    choices=["tul", "eta", "mode", "anomaly"])
+                    choices=["similarity", "tul", "eta", "mode", "anomaly"],
+                    help="similarity (GPE's local protocol) runs only when listed")
     ds.add_argument("--encoders", nargs="+",
                     default=["gpe", "gpe_ts", "geo", "geo_ts"],
                     choices=["gpe", "gpe_ts", "geo", "geo_ts"])
@@ -161,6 +162,12 @@ def main(argv=None):
                     help="anomaly: autoencoder bottleneck size")
     ds.add_argument("--k", type=int, default=10,
                     help="anomaly: neighbours for the latent kNN score")
+    ds.add_argument("--sim-n-test", type=int, default=2000,
+                    help="similarity: number of test trajectories")
+    ds.add_argument("--ablations", default="none", choices=["none", "drop", "only", "both"],
+                    help="channel ablation of GEO with every channel (geo_ts): drop = "
+                         "leave one channel out, only = one channel alone; results "
+                         "go under 'ablation' in the results file")
     ds.add_argument("--device", default="cpu")
     ds.add_argument("--out", default=None)
 
@@ -436,6 +443,9 @@ def main(argv=None):
     rb.add_argument("--direction-deg", type=float, default=0.0,
                     help="city scope: direction of the translations "
                          "(degrees from east)")
+    rb.add_argument("--ablations", default="none", choices=["none", "drop", "only", "both"],
+                    help="also train GEO with channels removed: drop = leave one "
+                         "out, only = one channel alone (one training per variant)")
     rb.add_argument("--diagnostics", action="store_true",
                     help="add GEO with its frame NOT re-fitted, and GPE in "
                          "GEO's frame (one extra training)")
@@ -522,6 +532,9 @@ def main(argv=None):
     ts.add_argument("--seeds", type=int, nargs="+", default=[0])
     ts.add_argument("--device", default="cpu")
     ts.add_argument("--out", default=None)
+    ts.add_argument("--ablations", default="none", choices=["none", "drop", "only", "both"],
+                    help="also train GEO with channels removed (in domain and "
+                         "zero-shot; one training per dataset and variant)")
     ts.add_argument("--scratch", action="store_true",
                     help="also train fresh models on each fraction of the target "
                          "(the from-scratch baseline; costs one training per "
@@ -673,11 +686,11 @@ def _dispatch(args):
                    scope=args.scope, shifts_km=tuple(args.shifts_km),
                    angles=tuple(args.angles), combined=tuple(args.combined),
                    direction_deg=args.direction_deg, diagnostics=args.diagnostics,
+                   ablations=args.ablations,
                    similarity_extras=args.similarity_extras, n_train=args.n_train,
                    n_test=args.n_test, max_traj=args.max_traj, epochs=args.epochs,
                    bs=args.bs, lr=args.lr, seeds=tuple(args.seeds),
-                   device=args.device, out=args.out, scratch=args.scratch,
-                   search=args.search,
+                   device=args.device, out=args.out, search=args.search,
                    space=args._cfg.get("search_space"), base_config=args._cfg,
                    search_method=args.search_method, n_trials=args.n_trials,
                    search_seed=args.search_seed, search_epochs=args.search_epochs,
@@ -696,7 +709,8 @@ def _dispatch(args):
                    n_train=args.n_train, n_test=args.n_test, max_traj=args.max_traj,
                    epochs=args.epochs, ft_epochs=args.ft_epochs, bs=args.bs,
                    lr=args.lr, ft_lr=args.ft_lr, seeds=tuple(args.seeds),
-                   device=args.device, out=args.out, search=args.search,
+                   device=args.device, out=args.out, scratch=args.scratch,
+                   ablations=args.ablations, search=args.search,
                    space=args._cfg.get("search_space"), base_config=args._cfg,
                    search_method=args.search_method, n_trials=args.n_trials,
                    search_seed=args.search_seed, search_epochs=args.search_epochs,
@@ -747,6 +761,7 @@ def _dispatch(args):
                    eta_step_m=args.eta_step_m, mode_split=args.mode_split,
                    anomaly_rate=args.anomaly_rate, severity=args.severity,
                    eta_max_min=args.eta_max_min, z_dim=args.z_dim, k=args.k,
+                   sim_n_test=args.sim_n_test, ablations=args.ablations,
                    device=args.device, out=args.out)
 
     if args.cmd == "gpe_suite":

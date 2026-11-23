@@ -29,7 +29,8 @@ from .style import HATCHES, WIDTH_2COL, annotate_bars, shorten
 # Nemenyi critical values q_alpha / sqrt(2), alpha = 0.05, k = 2..10 (Demsar 2006)
 Q05 = {2: 1.960, 3: 2.343, 4: 2.569, 5: 2.728, 6: 2.850, 7: 2.949, 8: 3.031,
        9: 3.102, 10: 3.164}
-TASK_TITLE = {"tul": "Trajectory-user linking", "eta": "Travel-time estimation",
+TASK_TITLE = {"similarity": "Trajectory similarity",
+              "tul": "Trajectory-user linking", "eta": "Travel-time estimation",
               "mode": "Transportation-mode detection",
               "anomaly": "Anomaly detection (all injected types pooled)"}
 MAIN = ("gpe", "gpe_ts", "geo", "geo_ts")       # ablation rows are not methods
@@ -61,7 +62,7 @@ def _task_rows(task):
 
 def fig_by_dataset(down):
     figs = []
-    tasks = [t for t in ("tul", "eta", "mode", "anomaly")
+    tasks = [t for t in ("similarity", "tul", "eta", "mode", "anomaly")
              if any(t in d["tasks"] for d in down.values())]
     for task in tasks:
         names = [n for n, d in down.items() if task in d["tasks"]]
@@ -747,7 +748,9 @@ def _plot_sweeps(res, tname, panels, lines, title):
                 ax.set_xlabel(f"latitude of the city centre ({res['units'][sweep]}; "
                               f"real: {d['centre_lonlat'][1]:.0f})", fontsize=6)
             else:
-                ax.set_xlabel(f"{sweep} ({res['units'][sweep]})", fontsize=6)
+                import textwrap
+                ax.set_xlabel(textwrap.fill(f"{sweep} ({res['units'][sweep]})", 38),
+                              fontsize=6)
             if r == 0:
                 ax.set_title(sweep, fontsize=7.5)
             if c == 0:
@@ -1064,8 +1067,13 @@ def build(datasets, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
     rows = overview_rows(down, suites)
     figs = []
+    tabs_extra = []
     if down:
         figs += fig_by_dataset(down)
+        from . import builders_ablation as A
+        figs += A.fig_ablation_indomain(down)
+        tabs_extra.append(A.tex_ablation(A.indomain_panels(down),
+                                         "Channel ablation in domain,"))
     figs += fig_similarity_by_dataset(suites)
     cdf, stats, notes = build_cd(rows)
     figs += cdf
@@ -1082,4 +1090,4 @@ def build(datasets, out_dir):
         write_paired_csv(tests, out_dir / "paired_tests.csv")
     if stats:
         (out_dir / "cd_stats.json").write_text(json.dumps(stats, indent=2))
-    return figs, [tex_by_dataset(rows), tex_cd(stats), tex_paired(tests)]
+    return figs, [tex_by_dataset(rows), tex_cd(stats), tex_paired(tests)] + tabs_extra

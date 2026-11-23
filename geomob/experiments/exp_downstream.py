@@ -64,6 +64,9 @@ from ..geo import enu_to_lonlat, lonlat_to_enu
 from ..models import TrajEncoder, pad_batch, set_seed
 
 TASKS = ("tul", "eta", "mode", "anomaly")
+ALL_TASKS = ("similarity",) + TASKS     # similarity only when asked for
+ABLATION_BASE = "geo_ts"                # the variant every ablation starts from
+ABLATION_PREFIX = "GEO (full)"          # same row names as robust / transfer_suite
 MAIN_ENCODERS = ("gpe", "gpe_ts", "geo", "geo_ts")
 # ablations used only by the anomaly channel checks
 ANOMALY_ABLATIONS = ("geo_disp_ts", "geo_radial_ts")
@@ -72,14 +75,26 @@ ANOMALY_ABLATIONS = ("geo_disp_ts", "geo_radial_ts")
 # ==========================================================================
 # encoders
 # ==========================================================================
-ENCODER_NAMES = {
+class _Names(dict):
+    """Encoder display names; ablation keys ("geo_ts-no_loc") are named on
+    the fly from their base."""
+
+    def __missing__(self, key):
+        if "-" in key:
+            from ..ablation import variant_label
+            base, vk = key.split("-", 1)
+            return variant_label(vk, prefix=ABLATION_PREFIX)
+        raise KeyError(key)
+
+
+ENCODER_NAMES = _Names({
     "gpe": "GPE",
     "gpe_ts": "GPE +time+speed",
     "geo": "GEO",
     "geo_ts": "GEO +time+speed",
     "geo_disp_ts": "GEO disp-only +time+speed",
     "geo_radial_ts": "GEO radial-only +time+speed",
-}
+})
 
 
 def _geo_loc():
@@ -105,13 +120,24 @@ class _RadialOnly:
 
 def make_tokenizer(key: str, task: str):
     """Build one encoder. For ETA the speed channel is dropped (it encodes
-    the answer), and the time channel is fed only the departure time."""
+    the answer), and the time channel is fed only the departure time. For
+    similarity neither is used: the two halves of a trip share their
+    timestamps, and the odd/even split doubles the step duration the speed
+    channel encodes. "<base>-<variant>" (e.g. "geo_ts-no_loc") is <base> with
+    channels removed (see geomob.ablation)."""
+    if "-" in key:
+        from ..ablation import ablate, variant_label
+        base, vk = key.split("-", 1)
+        b = make_tokenizer(base, task)
+        return ablate(b, vk, name=variant_label(vk, prefix=ABLATION_PREFIX))
     from .exp_similarity import Tokenizer
-    ts = key.endswith("_ts")
+    ts = key.endswith("_ts") and task != "similarity"
     from .exp_gpe_suite import gpe_encoder, speed_encoder, time_encoder
     speed = speed_encoder() if (ts and task != "eta") else None
     tim = time_encoder() if ts else None
     name = ENCODER_NAMES[key] + (" (departure time)" if ts and task == "eta" else "")
+    if key.endswith("_ts") and task == "similarity":
+        name = ENCODER_NAMES[key[:-3]]          # same channels as without _ts
     from .exp_gpe_suite import maybe_learnable_geo, maybe_learnable_gpe
     # the anomaly autoencoder reconstructs its input tokens, so it keeps fixed
     # codes (reconstructing raw metres would change what the score means)
@@ -131,6 +157,16 @@ def make_tokenizer(key: str, task: str):
     if key == "geo_radial_ts":
         return Tokenizer(disp=_RadialOnly(), time=tim, speed=speed, name=name)
     raise KeyError(key)
+
+
+def ablation_keys(task, mode):
+    """Ablation encoder keys for this task: variants of ABLATION_BASE over the
+    channels its tokenizer has for the task."""
+    if mode in (None, "none"):
+        return []
+    from ..ablation import variants
+    tok = make_tokenizer(ABLATION_BASE, task)
+    return [f"{ABLATION_BASE}-{vk}" for vk, _ in variants(tok, mode)]
 
 
 # ==========================================================================
@@ -410,6 +446,26 @@ def _fit_linear(Xtr, ytr, Xte, n_classes=None, steps=400, wd=1e-3, seed=0):
 # ==========================================================================
 # the four tasks
 # ==========================================================================
+def task_similarity(trajs, encoders, backbones, seeds, cfg):
+    """GPE's local protocol (odd/even halves, last n_test trajectories as the
+    test set), with the same trainer as relocate / robust / transfer_suite."""
+    from .exp_relocate import SimilarityTask
+    task = SimilarityTask(dict(cfg, n_train=None, n_test=cfg["sim_n_test"])).prepare(trajs)
+    if cfg.get("validation"):
+        n = max(int(0.2 * len(task.train)), 20)
+        task.train, task.test = task.train[:-n], task.train[-n:]
+    print(f"[similarity] {len(task.train)} train / {len(task.test)} test")
+
+    def run(key, kind, seed):
+        tok = make_tokenizer(key, "similarity")
+        tok.fit(task.train)
+        model = task.fit(tok, kind, seed)
+        return task.score(model, tok, task.test)
+
+    return _grid(run, encoders, backbones, seeds, "similarity"), {}, \
+        {"n_train": len(task.train), "n_test": len(task.test)}
+
+
 def task_tul(trajs, encoders, backbones, seeds, cfg):
     counts = {}
     for t in trajs:
@@ -734,11 +790,15 @@ def run(dataset="geolife", path=None, tasks=TASKS, encoders=MAIN_ENCODERS,
         backbones=("lstm", "transformer"), seeds=(0,), epochs=10, bs=64,
         lr=1e-3, max_traj=20000, min_trips=10, eta_step_m=30.0,
         eta_max_min=180.0, mode_split="user", anomaly_rate=0.28,
-        severity=1.0, z_dim=16, k=10, device="cpu", out=None):
+        severity=1.0, z_dim=16, k=10, sim_n_test=2000, ablations="none",
+        device="cpu", out=None):
     cfg = dict(epochs=epochs, bs=bs, lr=lr, device=device, min_trips=min_trips,
                eta_step_m=eta_step_m, eta_max_min=eta_max_min,
                mode_split=mode_split, anomaly_rate=anomaly_rate,
-               severity=severity, z_dim=z_dim, k=k)
+               severity=severity, z_dim=z_dim, k=k, sim_n_test=sim_n_test)
+    from ..ablation import MODES
+    if ablations not in MODES:
+        raise SystemExit(f"downstream: ablations must be one of {MODES}")
     kw = {} if dataset.startswith("synthetic") else {"max_traj": max_traj}
     if dataset.startswith("synthetic"):
         kw["n"] = min(max_traj, 3000)
@@ -746,9 +806,10 @@ def run(dataset="geolife", path=None, tasks=TASKS, encoders=MAIN_ENCODERS,
 
     res = {"dataset": dataset, "encoders": {k: ENCODER_NAMES[k] for k in encoders},
            "backbones": list(backbones), "seeds": list(seeds), "config": cfg,
-           "tasks": {}, "skipped_tasks": {}}
-    runners = {"tul": task_tul, "eta": task_eta, "mode": task_mode,
-               "anomaly": task_anomaly}
+           "tasks": {}, "skipped_tasks": {},
+           "ablations": ablations, "ablation_base": ABLATION_BASE}
+    runners = {"similarity": task_similarity, "tul": task_tul, "eta": task_eta,
+               "mode": task_mode, "anomaly": task_anomaly}
 
     def skip(task, why):
         res["skipped_tasks"][task] = why
@@ -770,8 +831,13 @@ def run(dataset="geolife", path=None, tasks=TASKS, encoders=MAIN_ENCODERS,
                            "(GeoLife does, via labels.txt)")
                 continue
         t0 = time.perf_counter()
+        abl = ablation_keys(task, ablations)
+        enc_t = tuple(encoders) + tuple(k for k in ((ABLATION_BASE,) if abl else ())
+                                        if k not in encoders) + tuple(abl)
+        for k in enc_t:
+            res["encoders"].setdefault(k, ENCODER_NAMES[k])
         try:
-            grid, base, meta = runners[task](data, encoders, backbones, seeds, cfg)
+            grid, base, meta = runners[task](data, enc_t, backbones, seeds, cfg)
         except (ValueError, IndexError, KeyError, ZeroDivisionError) as e:
             # typically "not enough users / labelled classes / trips" on a
             # small corpus; the other tasks can still run
@@ -779,8 +845,17 @@ def run(dataset="geolife", path=None, tasks=TASKS, encoders=MAIN_ENCODERS,
             traceback.print_exc()
             skip(task, f"{type(e).__name__}: {e}")
             continue
+        # ablation rows live apart from the methods, so the standard figures
+        # and tests keep comparing methods only
+        ab = {k: grid.pop(k) for k in abl if k in grid}
+        if abl and ABLATION_BASE not in encoders:
+            ab[ABLATION_BASE] = grid.pop(ABLATION_BASE)
+        elif abl:
+            ab[ABLATION_BASE] = grid[ABLATION_BASE]
         res["tasks"][task] = {"results": grid, "baselines": base, "meta": meta,
                               "seconds": time.perf_counter() - t0}
+        if ab:
+            res["tasks"][task]["ablation"] = ab
         if out:                      # checkpoint after every task
             save_results(res, out)
     _summary(res)
@@ -789,8 +864,8 @@ def run(dataset="geolife", path=None, tasks=TASKS, encoders=MAIN_ENCODERS,
     return res
 
 
-HEADLINE = {"tul": ("acc@1", True), "eta": ("MAE", False),
-            "mode": ("macro_F1", True)}
+HEADLINE = {"similarity": ("KP@10", True), "tul": ("acc@1", True),
+            "eta": ("MAE", False), "mode": ("macro_F1", True)}
 
 
 def _summary(res):
@@ -814,6 +889,24 @@ def _summary(res):
             v = b if not isinstance(b, dict) else b.get(metric)
             if v is not None:
                 print(f"  (baseline) {name:28s} {v:.3f}")
+    for task, d in res["tasks"].items():
+        ab = d.get("ablation")
+        if not ab:
+            continue
+        get = ((lambda v: v["latent_knn"]["all"]) if task == "anomaly"
+               else (lambda v, m=HEADLINE[task][0]: v[m]))
+        hi = True if task == "anomaly" else HEADLINE[task][1]
+        base = ab[res.get("ablation_base", ABLATION_BASE)]
+        print(f"[{task}] channel ablation: % change from full GEO (negative = worse)")
+        for key, bb in ab.items():
+            if key == res.get("ablation_base", ABLATION_BASE):
+                continue
+            parts = []
+            for kind, v in bb.items():
+                f = get(base[kind])
+                ch = (get(v) - f) / abs(f) * 100 * (1 if hi else -1) if f else float("nan")
+                parts.append(f"{kind}={ch:+.1f}%")
+            print("  " + ENCODER_NAMES[key].ljust(36) + "  ".join(parts))
 
 
 if __name__ == "__main__":
