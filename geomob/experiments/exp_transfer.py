@@ -491,12 +491,13 @@ def search_shared(domains, kind, space, *, method, n_trials, search_seed,
            "epochs": scfg["epochs"], "seeds": list(search_seeds),
            "val_frac": val_frac, "sim_extras": sim_extras,
            "n_val": {n: len(v.test) for n, v in vals.items()},
-           "base": base_hp}
+           "base": base_hp,
+           # trials run under another protocol are not reused
+           "protocol": {k: cfg.get(k) for k in ("frame_origin", "early_stopping",
+                                                "stop_val_frac", "min_steps")}}
     if select_on != "in_domain":            # trials also need zero-shot scores
         sig["zero_shot"] = {"adapt_norm": bool(adapt_norm),
-                            "protocol": {k: cfg.get(k) for k in (
-                                "frame_origin", "early_stopping", "min_steps",
-                                "calib_n")}}
+                            "calib_n": cfg.get("calib_n")}
     signature = json.dumps(sig, sort_keys=True, default=float)
     done = {}
     if resume and log_path.exists():

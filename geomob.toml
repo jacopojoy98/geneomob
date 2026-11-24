@@ -1,3 +1,9 @@
+# geomob configuration for run_experiments.sh (geomob 0.9.9).
+# Changed from your file: three seeds; GeoLife box on; similarity without time
+# or speed in every suite; location share 116 (step length kept); a 3 x 3
+# search over location share and longest location wavelength; transfer_suite
+# with the from-scratch baseline, diagnostics, channel ablation, and its own
+# search selected on in-domain AND zero-shot scores.
 # geomob configuration file (TOML).
 # Use with:  python -m geomob.cli <command> --config this_file.toml
 # Precedence: built-in defaults < [common] < [<command>] < command-line flags.
@@ -20,13 +26,15 @@
 # a box, dataset = [lon_min, lat_min, lon_max, lat_max]. Same thing from the
 # command line: --bbox geolife 115.9,39.6,116.9,40.3  (or --bbox geolife off)
 # e.g. GeoLife contains trips far from Beijing; this keeps the city itself:
-# geolife = [115.9, 39.6, 116.9, 40.3]
+geolife = [115.9, 39.6, 116.9, 40.3]
 # tdrive = [115.9, 39.6, 116.9, 40.3]
 
 [common]
 # applied to every command that has the option
-# device = "cuda"
-# seeds = [0, 1, 2]
+device = "cuda"
+# three seeds: the paired tests and the error bars need them
+# (the search has its own seeds in [search])
+seeds = [0, 1, 2]
 
 [model]
 # width of every sequence model (LSTM / Transformer / GNN)
@@ -44,13 +52,16 @@ h = 128
 # GPE Algorithm 1 epsilon-cut
 gpe_eps_over_2pi = 1e-06
 # how many of the h numbers go to LOCATION (multiple of 4); the rest goes to displacement: angular first (2 per harmonic), what remains to the radial part. 0 = half. Total stays exactly h. With h=128 and 2 harmonics: 64 = default, 96 = 96 loc + 28 radial + 4 angular, 124 = no radial part (angular only), 128 with geo_harmonics=[] = location only. When set, the two *_scales keys must stay 0
-geo_loc_dims = 0
+# 116 keeps 8 dimensions for step length (124 would remove that channel,
+# and with it the step-length scale and its ablation). The search below
+# decides between 64, 96 and 116; this value is its starting point.
+geo_loc_dims = 116
 # number of torus-lattice scales; 0 = h // 8
 geo_loc_scales = 0
 # finest location wavelength (m)
-geo_loc_lam_min_m = 25.0
+geo_loc_lam_min_m = 50.0
 # coarsest location wavelength (m)
-geo_loc_lam_max_m = 200000.0
+geo_loc_lam_max_m = 300000.0
 # radial displacement scales; 0 = (h/2 - 4) / 2
 geo_disp_scales = 0
 # finest displacement wavelength (m)
@@ -70,9 +81,9 @@ speed_lo = 0.05
 # SpeedGEO longest wavelength (log1p units)
 speed_hi = 60.0
 # origin of GEO's local frame: mean (centre of mass of the training points; moves with the sample), median (geometric median: robust to far-away trips, and it moves with the city when the city is shifted or turned), anchor (a fixed city centre: identical for training, validation, test and every run; falls back to the median when no anchor is near)
-frame_origin = "mean"
+frame_origin = "anchor"
 # x-axis of the frame: none (east), grid (dominant street direction, from step headings), pca (longest spread of the points)
-frame_orientation = "none"
+frame_orientation = "grid"
 # extra city centres for frame_origin = anchor, e.g. {lisbon = [-9.1393, 38.7223]}; built in: beijing, porto, rome, san_francisco, singapore, new_york
 frame_anchors = {}
 # an anchor is used only if the data's median lies within this distance of it
@@ -84,25 +95,27 @@ geo_coords = "metric"
 # GEO wavelengths trained with the model instead of fixed: none, loc (location), disp (radial), both. They start on the lam_min..lam_max ladder; equivariance is kept for any value
 learn_lambdas = "none"
 # scales whose initial wavelength is below this (metres) stay fixed: for short wavelengths the gradient is mostly noise. 0 = learn all
-learn_lambda_min_m = 0.0
+learn_lambda_min_m = 10.0
 # how fast the log-wavelengths move relative to the other weights (1 = same step size)
 lambda_lr_scale = 1.0
 # let GPE learn its frequencies too (fairness control when GEO learns its wavelengths)
 gpe_learn_freqs = false
 
 [search_space]
-# used by `python -m geomob.cli search`: for any [encoders] or [model]
-# key, the list of values to try. Every combination is a trial (grid),
-# or a random subset of them (method = "random" in [search]).
-# geo_loc_lam_min_m = [10.0, 25.0, 50.0]
-# geo_loc_lam_max_m = [50000.0, 200000.0]
-# geo_disp_lam_min_m = [2.0, 5.0, 10.0]
-# geo_disp_lam_max_m = [5000.0, 20000.0]
-# geo_harmonics = [[1], [1, 4], [1, 2, 4]]
-# geo_loc_dims = [64, 80, 96, 112, 124]   # location share of h; 124 = no radial part
+# used by `python -m geomob.cli search`, and by transfer_suite --search: for
+# any [encoders] or [model] key, the list of values to try. Every combination
+# is a trial (grid), or a random subset of them (method = "random" in [search]).
+# The two settings that mattered in your earlier searches (location share,
+# longest location wavelength); 3 x 3 = 9 trials. 64 is there for transfer:
+# the in-domain optimum spends most of the token on absolute position.
+geo_loc_dims = [64, 96, 116]
+geo_loc_lam_max_m = [50000.0, 300000.0, 8100000.0]
+geo_loc_lam_min_m = [50.0]
+# harmonics explained < 1% of the variance: fixed
+geo_harmonics = [[1, 4]]
 
 [run_all]
-# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+datasets = ["tdrive", "porto", "geolife"]
 # robust is available but not in the default list
 # steps = ["gpe_suite", "downstream", "relocate", "anomaly_synth", "figures"]
 # out_dir = "results"
@@ -158,7 +171,8 @@ gpe_learn_freqs = false
 # dataset = "geolife"
 # path =
 # similarity (GPE's local protocol) runs only when listed
-# tasks = ["tul", "eta", "mode", "anomaly"]
+# (listed: it is part of the critical-difference diagram)
+tasks = ["similarity", "tul", "eta", "mode", "anomaly"]
 # encoders = ["gpe", "gpe_ts", "geo", "geo_ts"]
 # backbones = ["lstm", "transformer"]
 # seeds = [0]
@@ -186,7 +200,7 @@ gpe_learn_freqs = false
 # out =
 
 [gpe_suite]
-# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+datasets = ["tdrive", "porto", "geolife"]
 # parts = ["local_global", "dims", "arch", "road"]
 # encoders = ["gpe", "geo"]
 # kinds = ["lstm", "transformer", "gnn"]
@@ -339,15 +353,15 @@ gpe_learn_freqs = false
 
 [search]
 # what a trial is scored on: trajectory similarity (any dataset) or a GeoLife downstream task
-# objective = "similarity"
+objective = "similarity"
 # similarity: KP@10 (default), MRR, MP, MR, global_MRR; tul: acc@1 (default), acc@5, macro_F1; eta: MAE (default), RMSE, MAPE; mode: macro_F1 (default), acc@1
-# metric =
+metric = "KP@10"
 # grid = every combination; random = n_trials of them
 # method = "grid"
 # number of combinations when method = random
 # n_trials = 20
 # similarity objective: corpora to average over (missing ones are skipped)
-# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+datasets = ["tdrive", "porto", "geolife"]
 # default: geo for similarity, geo_ts (with time and speed) for the downstream objectives
 # encoder =
 # kind = "lstm"
@@ -362,7 +376,8 @@ gpe_learn_freqs = false
 # similarity: size of the gpe_suite test set to hold out untouched (use the same value as [gpe_suite] n_test)
 # n_test = 5000
 # max_traj = 20000
-# seeds = [0]
+# one seed per trial (otherwise [common] seeds would triple the search)
+seeds = [0]
 # which random subset is drawn when method = random
 # search_seed = 0
 # device = "cpu"
@@ -371,7 +386,7 @@ gpe_learn_freqs = false
 # no_resume = false
 
 [relocate]
-# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+datasets = ["tdrive", "porto", "geolife"]
 # similarity is the control; eta and mode are the supervised tasks whose answer does not depend on where the city is (mode needs GeoLife labels)
 # tasks = ["similarity", "eta", "mode"]
 # spatial = GPE vs GEO as in gpe_suite; ts = both with time and speed added (eta and mode only)
@@ -394,17 +409,17 @@ gpe_learn_freqs = false
 # out =
 
 [robust]
-# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+datasets = ["tdrive", "porto", "geolife"]
 # tasks = ["similarity", "eta", "mode"]
 # kinds = ["lstm"]
 # city = the whole test city moved as one rigid body, GEO re-fits its frame without labels; trip = every test trajectory moved on its own, random direction, GEO keeps the training frame
 # scope = "city"
 # translations (km); empty = no translation sweep
-# shifts_km = [1.0, 10.0, 100.0, 1000.0]
+shifts_km = [1.0, 20.0, 40, 80, 160.0]
 # rotations (degrees); empty = no rotation sweep
-# angles = [15.0, 30.0, 45.0, 90.0]
+angles = [5.0, 15.0, 23.0, 30.0, 45.0]
 # rotation AND translation, as km:degrees pairs; empty = no combined sweep
-# combined = ["1:15", "10:30", "100:45", "1000:90"]
+combined = ["1:15", "10:30", "20:23", "80:41"]
 # city scope: direction of the translations (degrees from east)
 # direction_deg = 0.0
 # also train GEO with channels removed: drop = leave one out, only = one channel alone (one training per variant)
@@ -412,7 +427,8 @@ gpe_learn_freqs = false
 # add GEO with its frame NOT re-fitted, and GPE in GEO's frame (one extra training)
 # diagnostics = false
 # GEO's channels on top of location + displacement for similarity (time is off by default: the two halves of a trip share their timestamps)
-# similarity_extras = "speed"
+# none: same channels as transfer_suite and downstream (speed hurts odd/even similarity)
+similarity_extras = "none"
 # n_train =
 # n_test = 2000
 # max_traj = 20000
@@ -442,7 +458,7 @@ gpe_learn_freqs = false
 # no_resume = false
 
 [transfer_suite]
-# datasets = ["tdrive", "porto", "roma", "ais", "geolife"]
+datasets = ["tdrive", "porto", "geolife"]
 # mode needs mode labels on two datasets (GeoLife alone has them)
 # tasks = ["similarity", "eta"]
 # kinds = ["lstm"]
@@ -465,18 +481,19 @@ gpe_learn_freqs = false
 # travel time: drop trips longer than this (minutes), on every dataset
 # eta_max_min = 180.0
 # GEO's channels on top of location + displacement for similarity (none: the odd/even protocol changes the sampling interval, which the speed channel encodes)
-# similarity_extras = "none"
-# similarity_metric = "KP@10"
+# none: time would give the odd/even match away (both halves share timestamps)
+similarity_extras = "none"
+similarity_metric = "KP@10"
 # zero-shot: keep the SOURCE token standardisation instead of re-fitting it on the target's unlabelled tokens
 # no_adapt_norm = false
 # zero-shot also with GEO's frame left at the source city
-# diagnostics = false
+diagnostics = true
 # n_train =
 # n_test = 2000
 # max_traj = 20000
-# epochs = 5
+epochs = 5
 # fine-tuning epochs (default: --epochs)
-# ft_epochs =
+# ft_epochs = 0
 # bs = 128
 # lr = 0.001
 # fine-tuning learning rate (default: --lr)
@@ -485,23 +502,24 @@ gpe_learn_freqs = false
 # device = "cpu"
 # out =
 # also train GEO with channels removed (in domain and zero-shot; one training per dataset and variant)
-# ablations = "none"
+ablations = "drop"
 # also train fresh models on each fraction of the target (the from-scratch baseline; costs one training per dataset x fraction x method)
-# scratch = false
+scratch = true
 # tune GEO first: one configuration per task and model, shared by all datasets, chosen on validation splits (values to try: [search_space])
-# search = false
-# search_method = "grid"
+# run_experiments.sh switches it on (TRANSFER_SEARCH=1)
+search = false
+search_method = "grid"
 # number of combinations when search_method = random
-# n_trials = 20
+# n_trials = 5
 # search_seed = 0
 # epochs per search trial (default: --epochs)
-# search_epochs =
+search_epochs = 2
 # seeds averaged inside each search trial
 # search_seeds = [0]
 # share of each training split used for validation
 # val_frac = 0.2
 # search: pick GEO's configuration by its in-domain validation score, by its zero-shot transfer between the datasets' validation parts (no extra training; for travel time it reads the targets' validation labels), or both
-# select_on = "in_domain"
+select_on = "both"
 # where trials.jsonl / search_results.csv / best_*.toml go (default: <out>_search)
 # search_dir =
 # ignore search trials already in trials.jsonl

@@ -45,6 +45,46 @@ python -m geomob.cli run_all --quick --paths geolife=/data/Geolife   # smoke tes
 * Single-dataset commands (`benchmark`, `anomaly --dataset porto`, ...) stop
   with a one-line reason instead of a traceback when their dataset is absent.
 
+## Running every experiment: `run_experiments.sh`
+
+```bash
+QUICK=1 bash run_experiments.sh      # tiny sizes: checks the whole pipeline (minutes)
+bash run_experiments.sh              # the full run -> results6/, figures/IMG6/
+N_EXP=7 bash run_experiments.sh      # another numbered run
+```
+
+Data paths come from `DATA_PORTO`, `DATA_TDRIVE` and `DATA_GEOLIFE` (defaults in
+the script); missing datasets are skipped. Steps, in order, with the question
+each one answers:
+
+| step | results file | question |
+|---|---|---|
+| 1 `search` | `search/best.toml` | GEO's settings, scored on validation data only |
+| 2 `gpe_suite` | `gpe_suite.json` | in domain: on GPE's own benchmark, is GEO at least as good? |
+| 3 `downstream` | `downstream_<dataset>.json` | in domain: do movement and time help real tasks? |
+| 4 `robust --scope city --diagnostics` | `robust_city.json` | robustness: does a trained model survive a moved city? |
+| 5 `transfer_suite` | `transfer_suite.json` | transfer: zero-shot, calibrated, few labels, from scratch; channel ablation |
+| 6 `robust --scope trip --ablations drop` | `robust_trip.json` | robustness of the channels themselves; channel ablation |
+| 7 `downstream --encoders geo_ts --backbones lstm --ablations drop` | `ablation/downstream_<dataset>.json` | which channel matters for which task |
+| 8 `relocate` | `relocate.json` | appendix: the city moved to other latitudes |
+| 9 `anomaly` | `anomaly_synthetic.json` | case study: anomaly types aligned to channels |
+| 10 figures | `figures/IMG<n>/`, `.../ablation_in_domain/`, `.../search/` | everything above, `tables.tex`, the search analysis |
+
+- **Resumable.** A step whose results file exists is skipped, so relaunching
+  continues an interrupted run; delete a file to redo that step. A failed step
+  is listed at the end (log in `results<n>/logs/`) and the other steps still
+  run.
+- **One GEO configuration** (from step 1) is used everywhere, except in
+  `transfer_suite` when `TRANSFER_SEARCH=1` (the default). There
+  `transfer_suite` runs its own search over the same `[search_space]`, selected
+  on in-domain and zero-shot validation scores (`select_on = "both"`).
+  `TRANSFER_SEARCH=0` uses step 1's settings there too.
+- **Figures.** Steps 2–9 are rendered together. Two runs of the same
+  experiment (the two `robust` scopes) get their file name appended, e.g.
+  `fig_robust_eta__robust_trip`. The in-domain ablation has its own folder,
+  because its results files hold GEO only. `analyze_search.py` (next to the
+  script) analyses the search.
+
 ## Config file: every hyperparameter in one place, saved with the results
 
 ```bash
